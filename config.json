@@ -1,9 +1,14 @@
 {
   "default_provider": "opencode-go",
   "providers": {
+    "local": {
+      "base_url": "http://192.168.1.186:8087/v1",
+      "model": "ornith-1.0-9b-mtp",
+      "api_key_env": null
+    },
     "opencode-go": {
       "base_url": "https://api.opencode.ai/v1",
-      "model": "opencode/deepseek-v4-flash",
+      "model": "qwen3.6-plus",
       "api_key_env": "OPENCODE_API_KEY"
     },
     "lm-studio": {

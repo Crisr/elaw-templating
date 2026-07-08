@@ -33,6 +33,13 @@ def get_provider(config, name=None):
             except ImportError:
                 pass
             provider["api_key"] = os.environ.get(api_key_env)
+        if not provider["api_key"]:
+            try:
+                with open("secrets.json") as f:
+                    secrets = json.load(f)
+                    provider["api_key"] = secrets.get(api_key_env)
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
     return provider
 
 
@@ -164,7 +171,8 @@ def _parse_translated_response(response_text, chunk_ids, original_text=None):
 def translate_chunk(chunk, target_lang, provider):
     chunk_text = _build_chunk_text(chunk)
     chunk_ids = [p["id"] for p in chunk]
-    client = OpenAI(base_url=provider["base_url"], api_key=provider.get("api_key", ""))
+    api_key = provider.get("api_key") or "not-needed"
+    client = OpenAI(base_url=provider["base_url"], api_key=api_key)
     system_prompt = _["llm_system_prompt"].format(lang=target_lang)
     last_error = RuntimeError("translate_chunk failed after all retries")
     for attempt in range(3):
@@ -204,17 +212,31 @@ def translate_chunk(chunk, target_lang, provider):
     raise last_error
 
 
+def _show_progress(done, total):
+    if total == 0:
+        return
+    width = 30
+    pct = done / total
+    filled = int(width * pct)
+    bar = "#" * filled + "-" * (width - filled)
+    print("\r" + _["progress"].format(bar=bar, pct=pct * 100, done=done, total=total), end="", flush=True)
+
+
 def translate_all(paragraphs, target_lang, provider):
     chunks = chunk_paragraphs(paragraphs)
+    total = len(chunks)
     all_translated = []
     failed_chunks = []
+    _show_progress(0, total)
     for i, chunk in enumerate(chunks):
         try:
             translated = translate_chunk(chunk, target_lang, provider)
             all_translated.extend(translated)
         except Exception as e:
-            print(_["err_translate_chunk"].format(i=i, e=e), file=sys.stderr)
+            print("\n" + _["err_translate_chunk"].format(i=i, e=e), file=sys.stderr)
             failed_chunks.append(i)
+        _show_progress(i + 1, total)
+    print()
     if failed_chunks:
         print(_["warn_chunks_failed"].format(count=len(failed_chunks), indices=failed_chunks), file=sys.stderr)
     return all_translated
