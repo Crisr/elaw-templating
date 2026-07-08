@@ -7,6 +7,7 @@ import re
 from openai import OpenAI
 from docx import Document, Document as DocxDocument
 from docx.shared import Pt, RGBColor
+from messages import MESSAGES as _
 
 
 def load_config(path="config.json"):
@@ -20,7 +21,8 @@ def get_provider(config, name=None):
     try:
         provider = config["providers"][name].copy()
     except KeyError:
-        raise ValueError(f"Provider '{name}' not found in config. Available: {list(config['providers'].keys())}")
+        providers_list = list(config['providers'].keys())
+        raise ValueError(_["provider_not_found"].format(name=name, providers=providers_list))
     api_key_env = provider.pop("api_key_env", None)
     if api_key_env:
         provider["api_key"] = os.environ.get(api_key_env)
@@ -64,7 +66,7 @@ def _cell_coords(para):
 
 def extract_paragraphs(path):
     if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
+        raise FileNotFoundError(_["file_not_found"].format(path=path))
     doc = Document(path)
     paragraphs = []
     pid = 0
@@ -163,12 +165,7 @@ def translate_chunk(chunk, target_lang, provider):
     chunk_text = _build_chunk_text(chunk)
     chunk_ids = [p["id"] for p in chunk]
     client = OpenAI(base_url=provider["base_url"], api_key=provider.get("api_key", ""))
-    system_prompt = (
-        f"You are a legal document translator. Translate the following paragraphs "
-        f"to {target_lang}. Preserve all paragraph IDs exactly ([P0], [P1], ...). "
-        f"Preserve {{...}} placeholders without translating them. "
-        f"Output ONLY the translated paragraphs with their IDs — no extra text."
-    )
+    system_prompt = _["llm_system_prompt"].format(lang=target_lang)
     last_error = RuntimeError("translate_chunk failed after all retries")
     for attempt in range(3):
         try:
@@ -216,10 +213,10 @@ def translate_all(paragraphs, target_lang, provider):
             translated = translate_chunk(chunk, target_lang, provider)
             all_translated.extend(translated)
         except Exception as e:
-            print(f"Error translating chunk {i}: {e}", file=sys.stderr)
+            print(_["err_translate_chunk"].format(i=i, e=e), file=sys.stderr)
             failed_chunks.append(i)
     if failed_chunks:
-        print(f"Warning: {len(failed_chunks)} chunk(s) failed: {failed_chunks}", file=sys.stderr)
+        print(_["warn_chunks_failed"].format(count=len(failed_chunks), indices=failed_chunks), file=sys.stderr)
     return all_translated
 
 
@@ -558,16 +555,16 @@ def test_parse_translated_response_protects_placeholders():
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Translate DOCX documents using LLM")
-    parser.add_argument("input", help="Path to input DOCX file")
+    parser = argparse.ArgumentParser(description=_["cli_desc"])
+    parser.add_argument("input", help=_["cli_input_help"])
     parser.add_argument("--lang", "-l", required=True, choices=["ro", "en"],
-                        help="Target language (ro=Romanian, en=English)")
+                        help=_["cli_lang_help"])
     parser.add_argument("--mode", "-m", choices=["inline", "side-by-side"],
-                        default="inline", help="Output layout mode")
-    parser.add_argument("--output", "-o", help="Output path (auto-generated if omitted)")
-    parser.add_argument("--provider", "-p", help="Provider key from config.json")
-    parser.add_argument("--model", help="Override model name")
-    parser.add_argument("--config", "-c", default="config.json", help="Config file path")
+                        default="inline", help=_["cli_mode_help"])
+    parser.add_argument("--output", "-o", help=_["cli_output_help"])
+    parser.add_argument("--provider", "-p", help=_["cli_provider_help"])
+    parser.add_argument("--model", help=_["cli_model_help"])
+    parser.add_argument("--config", "-c", default="config.json", help=_["cli_config_help"])
     return parser.parse_args(argv)
 
 
@@ -592,41 +589,31 @@ def main():
         write_side_by_side(args.input, paragraphs, translated, output)
     else:
         write_inline(args.input, translated, output)
-    print(f"Translated document saved to: {output}")
+    print(_["saved"].format(output=output))
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        test_config_loading()
-        print("  test_config_loading PASS")
-        test_get_provider()
-        print("  test_get_provider PASS")
-        test_extract_paragraphs()
-        print("  test_extract_paragraphs PASS")
-        test_extract_paragraphs_with_table()
-        print("  test_extract_paragraphs_with_table PASS")
-        test_extract_paragraphs_invalid_file()
-        print("  test_extract_paragraphs_invalid_file PASS")
-        test_chunk_paragraphs()
-        print("  test_chunk_paragraphs PASS")
-        test_translate_chunk()
-        print("  test_translate_chunk PASS")
-        test_translate_chunk_retry()
-        print("  test_translate_chunk_retry PASS")
-        test_write_inline()
-        print("  test_write_inline PASS")
-        test_write_side_by_side()
-        print("  test_write_side_by_side PASS")
-        test_write_inline_with_table()
-        print("  test_write_inline_with_table PASS")
-        test_cli_parser()
-        print("  test_cli_parser PASS")
-        test_restore_placeholders()
-        print("  test_restore_placeholders PASS")
-        test_restore_missing_placeholder()
-        print("  test_restore_missing_placeholder PASS")
-        test_parse_translated_response_protects_placeholders()
-        print("  test_parse_translated_response_protects_placeholders PASS")
-        print("All tests PASS")
+        tests = [
+            ("test_config_loading", test_config_loading),
+            ("test_get_provider", test_get_provider),
+            ("test_extract_paragraphs", test_extract_paragraphs),
+            ("test_extract_paragraphs_with_table", test_extract_paragraphs_with_table),
+            ("test_extract_paragraphs_invalid_file", test_extract_paragraphs_invalid_file),
+            ("test_chunk_paragraphs", test_chunk_paragraphs),
+            ("test_translate_chunk", test_translate_chunk),
+            ("test_translate_chunk_retry", test_translate_chunk_retry),
+            ("test_write_inline", test_write_inline),
+            ("test_write_side_by_side", test_write_side_by_side),
+            ("test_write_inline_with_table", test_write_inline_with_table),
+            ("test_cli_parser", test_cli_parser),
+            ("test_restore_placeholders", test_restore_placeholders),
+            ("test_restore_missing_placeholder", test_restore_missing_placeholder),
+            ("test_parse_translated_response_protects_placeholders", test_parse_translated_response_protects_placeholders),
+        ]
+        for name, fn in tests:
+            fn()
+            print(_["test_pass"].format(name=name))
+        print(_["all_pass"])
