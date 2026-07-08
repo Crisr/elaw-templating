@@ -224,9 +224,43 @@ def _show_progress(done, total):
     print("\r" + _["progress"].format(bar=bar, pct=pct * 100, done=done, total=total), end="", flush=True)
 
 
-def translate_all(paragraphs, target_lang, provider, concurrency=4):
+_CONCURRENCY_CACHE = None
+
+
+def _detect_concurrency(provider):
+    global _CONCURRENCY_CACHE
+    if _CONCURRENCY_CACHE is not None:
+        return _CONCURRENCY_CACHE
+    api_key = provider.get("api_key") or "not-needed"
+    client = OpenAI(base_url=provider["base_url"], api_key=api_key)
+    probe = [{"role": "user", "content": "ok"}]
+    best = 1
+    for level in [2, 4, 6, 8, 12, 16]:
+        print("\r" + _["detecting_concurrency"].format(n=level), end="", flush=True)
+        def try_request(_):
+            try:
+                client.chat.completions.create(model=provider["model"], messages=probe, temperature=0, max_tokens=1)  # type: ignore
+                return True
+            except Exception:
+                return False
+        with ThreadPoolExecutor(max_workers=level) as pool:
+            results = list(pool.map(try_request, range(level)))
+        if sum(1 for r in results if not r) == 0:
+            best = level
+        else:
+            break
+    print("\r" + " " * 50 + "\r", end="", flush=True)
+    _CONCURRENCY_CACHE = best
+    return best
+
+
+def translate_all(paragraphs, target_lang, provider, concurrency=0):
+    if concurrency < 1:
+        concurrency = _detect_concurrency(provider)
     chunks = chunk_paragraphs(paragraphs)
     total = len(chunks)
+    if concurrency > total:
+        concurrency = total
     results = [None] * total
     failed_indices = []
     lock = threading.Lock()
@@ -543,7 +577,7 @@ def test_cli_parser():
     assert args.input == 'input.docx'
     assert args.lang == 'ro'
     assert args.mode == 'inline'
-    assert args.concurrency == 4
+    assert args.concurrency == 0
     args = parse_args(['input.docx', '--lang', 'en', '--mode', 'side-by-side', '--concurrency', '2'])
     assert args.input == 'input.docx'
     assert args.lang == 'en'
@@ -609,7 +643,7 @@ def parse_args(argv=None):
     parser.add_argument("--provider", "-p", help=_["cli_provider_help"])
     parser.add_argument("--model", help=_["cli_model_help"])
     parser.add_argument("--config", "-c", default="config.json", help=_["cli_config_help"])
-    parser.add_argument("--concurrency", "-j", type=int, default=4,
+    parser.add_argument("--concurrency", "-j", type=int, default=0,
                         help=_["cli_concurrency_help"])
     return parser.parse_args(argv)
 
