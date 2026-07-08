@@ -4,6 +4,8 @@ import os
 import sys
 import time
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from docx import Document, Document as DocxDocument
 from docx.shared import Pt, RGBColor
@@ -222,23 +224,41 @@ def _show_progress(done, total):
     print("\r" + _["progress"].format(bar=bar, pct=pct * 100, done=done, total=total), end="", flush=True)
 
 
-def translate_all(paragraphs, target_lang, provider):
+def translate_all(paragraphs, target_lang, provider, concurrency=4):
     chunks = chunk_paragraphs(paragraphs)
     total = len(chunks)
-    all_translated = []
-    failed_chunks = []
-    _show_progress(0, total)
-    for i, chunk in enumerate(chunks):
+    results = [None] * total
+    failed_indices = []
+    lock = threading.Lock()
+    done = 0
+
+    def process(i, chunk):
         try:
             translated = translate_chunk(chunk, target_lang, provider)
-            all_translated.extend(translated)
+            return i, translated, None
         except Exception as e:
-            print("\n" + _["err_translate_chunk"].format(i=i, e=e), file=sys.stderr)
-            failed_chunks.append(i)
-        _show_progress(i + 1, total)
+            return i, None, e
+
+    _show_progress(0, total)
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = [pool.submit(process, i, c) for i, c in enumerate(chunks)]
+        for future in as_completed(futures):
+            i, translated, err = future.result()
+            with lock:
+                if err:
+                    print("\n" + _["err_translate_chunk"].format(i=i, e=err), file=sys.stderr)
+                    failed_indices.append(i)
+                else:
+                    results[i] = translated
+                done += 1
+                _show_progress(done, total)
     print()
-    if failed_chunks:
-        print(_["warn_chunks_failed"].format(count=len(failed_chunks), indices=failed_chunks), file=sys.stderr)
+    all_translated = []
+    for r in results:
+        if r is not None:
+            all_translated.extend(r)
+    if failed_indices:
+        print(_["warn_chunks_failed"].format(count=len(failed_indices), indices=failed_indices), file=sys.stderr)
     return all_translated
 
 
@@ -523,10 +543,12 @@ def test_cli_parser():
     assert args.input == 'input.docx'
     assert args.lang == 'ro'
     assert args.mode == 'inline'
-    args = parse_args(['input.docx', '--lang', 'en', '--mode', 'side-by-side'])
+    assert args.concurrency == 4
+    args = parse_args(['input.docx', '--lang', 'en', '--mode', 'side-by-side', '--concurrency', '2'])
     assert args.input == 'input.docx'
     assert args.lang == 'en'
     assert args.mode == 'side-by-side'
+    assert args.concurrency == 2
 
 
 def test_write_side_by_side():
@@ -587,6 +609,8 @@ def parse_args(argv=None):
     parser.add_argument("--provider", "-p", help=_["cli_provider_help"])
     parser.add_argument("--model", help=_["cli_model_help"])
     parser.add_argument("--config", "-c", default="config.json", help=_["cli_config_help"])
+    parser.add_argument("--concurrency", "-j", type=int, default=4,
+                        help=_["cli_concurrency_help"])
     return parser.parse_args(argv)
 
 
@@ -606,7 +630,7 @@ def main():
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output = f"{stem}_{timestamp}.docx"
     paragraphs = extract_paragraphs(args.input)
-    translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider)
+    translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider, args.concurrency)
     if args.mode == "side-by-side":
         write_side_by_side(args.input, paragraphs, translated, output)
     else:
