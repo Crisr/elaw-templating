@@ -54,7 +54,7 @@ def _extract_runs(para):
             "italic": run.italic,
             "underline": run.underline,
             "font_name": run.font.name,
-            "font_size": str(run.font.size) if run.font.size else None,
+            "font_size": run.font.size.pt if run.font.size else None,
             "color": str(run.font.color.rgb) if run.font.color and run.font.color.rgb else None,
         })
     return runs_data
@@ -470,10 +470,11 @@ def _apply_run_formatting(run, run_data):
     run.underline = run_data.get("underline")
     if run_data.get("font_name"):
         run.font.name = run_data["font_name"]
-    if run_data.get("font_size"):
+    fs = run_data.get("font_size")
+    if fs is not None:
         try:
-            run.font.size = Pt(float(run_data["font_size"].rstrip("pt")))
-        except (ValueError, AttributeError):
+            run.font.size = Pt(float(fs))
+        except (ValueError, TypeError):
             pass
     if run_data.get("color"):
         try:
