@@ -498,7 +498,17 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
         break
     trans_by_id = {p["id"]: p for p in translated_paras}
     table = doc.add_table(rows=len(original_paras), cols=2)
-    table.style = 'Table Grid'
+    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    tbl_pr = table._tbl.tblPr
+    tbl_borders = doc.element.makeelement(ns + 'tblBorders', {})
+    for edge in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
+        child = doc.element.makeelement(ns + edge, {})
+        child.set(ns + 'val', 'none')
+        child.set(ns + 'sz', '0')
+        child.set(ns + 'space', '0')
+        child.set(ns + 'color', 'auto')
+        tbl_borders.append(child)
+    tbl_pr.append(tbl_borders)
     for i, op in enumerate(original_paras):
         pid = op["id"]
         left_cell = table.rows[i].cells[0]
