@@ -172,6 +172,32 @@ def translate_all(paragraphs, target_lang, provider):
     return all_translated
 
 
+def write_inline(original_path, translated_paragraphs, output_path):
+    from docx import Document as DocxDocument
+    doc = DocxDocument(original_path)
+    trans_by_id = {p["id"]: p for p in translated_paragraphs}
+    for i, para in enumerate(doc.paragraphs):
+        pid = f"P{i}"
+        if pid in trans_by_id:
+            tp = trans_by_id[pid]
+            for j, run in enumerate(para.runs):
+                if j < len(tp["runs"]):
+                    run.text = tp["runs"][j]["text"]
+    pid = len(doc.paragraphs)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    pid_str = f"P{pid}"
+                    if pid_str in trans_by_id:
+                        tp = trans_by_id[pid_str]
+                        for j, run in enumerate(para.runs):
+                            if j < len(tp["runs"]):
+                                run.text = tp["runs"][j]["text"]
+                    pid += 1
+    doc.save(output_path)
+
+
 def test_config_loading():
     import json, tempfile, os
     cfg = {
@@ -285,6 +311,29 @@ def test_translate_chunk():
 def test_translate_chunk_retry():
     pass
 
+
+def test_write_inline():
+    from docx import Document
+    import tempfile, os
+    doc = Document()
+    p = doc.add_paragraph()
+    p.add_run("Original text")
+    src = os.path.join(tempfile.mkdtemp(), "source.docx")
+    doc.save(src)
+    translated = [{
+        "id": "P0",
+        "runs": [{"text": "Text tradus", "bold": False, "italic": False}],
+        "alignment": None,
+        "in_table": False,
+    }]
+    out = os.path.join(tempfile.mkdtemp(), "output.docx")
+    write_inline(src, translated, out)
+    result = Document(out)
+    assert result.paragraphs[0].text == "Text tradus"
+    os.unlink(src)
+    os.unlink(out)
+
+
 if __name__ == "__main__":
     test_config_loading()
     test_get_provider()
@@ -293,4 +342,5 @@ if __name__ == "__main__":
     test_extract_paragraphs_invalid_file()
     test_chunk_paragraphs()
     test_translate_chunk()
+    test_write_inline()
     print("PASS")
