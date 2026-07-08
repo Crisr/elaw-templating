@@ -6,6 +6,8 @@ import sys
 import time
 import re
 import threading
+import zipfile
+from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from docx import Document, Document as DocxDocument
@@ -44,6 +46,19 @@ def get_provider(config, name=None):
             except (FileNotFoundError, json.JSONDecodeError):
                 pass
     return provider
+
+
+NS_W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+
+
+def _extract_numpr_xml(para):
+    pPr = para._element.find(f'{NS_W}pPr')
+    if pPr is not None:
+        numPr = pPr.find(f'{NS_W}numPr')
+        if numPr is not None:
+            from lxml import etree
+            return etree.tostring(numPr).decode()
+    return None
 
 
 def _extract_runs(para):
@@ -90,6 +105,7 @@ def extract_paragraphs(path):
             "in_table": cell_row is not None,
             "cell_row": cell_row,
             "cell_col": cell_col,
+            "numpr_xml": _extract_numpr_xml(para),
         })
         pid += 1
 
@@ -104,6 +120,7 @@ def extract_paragraphs(path):
                         "in_table": True,
                         "cell_row": row_idx,
                         "cell_col": col_idx,
+                        "numpr_xml": _extract_numpr_xml(para),
                     })
                     pid += 1
 
@@ -509,6 +526,7 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
         child.set(ns + 'color', 'auto')
         tbl_borders.append(child)
     tbl_pr.append(tbl_borders)
+    from lxml import etree
     for i, op in enumerate(original_paras):
         pid = op["id"]
         left_cell = table.rows[i].cells[0]
@@ -517,12 +535,60 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
             p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
+        np = op.get("numpr_xml")
+        if np:
+            pPr = left_cell.paragraphs[0]._element.find(f'{NS_W}pPr')
+            if pPr is None:
+                pPr = doc.element.makeelement(NS_W + 'pPr', {})
+                left_cell.paragraphs[0]._element.insert(0, pPr)
+            pPr.append(etree.fromstring(np))
         tp = trans_by_id.get(pid, op)
         for run_data in tp["runs"]:
             p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
-    doc.save(output_path)
+        if np:
+            pPr = right_cell.paragraphs[0]._element.find(f'{NS_W}pPr')
+            if pPr is None:
+                pPr = doc.element.makeelement(NS_W + 'pPr', {})
+                right_cell.paragraphs[0]._element.insert(0, pPr)
+            pPr.append(etree.fromstring(np))
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    with zipfile.ZipFile(buf, 'r') as out_zip:
+        out_names = out_zip.namelist()
+        if 'word/numbering.xml' not in out_names:
+            with zipfile.ZipFile(original_path, 'r') as src_zip:
+                if 'word/numbering.xml' in src_zip.namelist():
+                    numbering_xml = src_zip.read('word/numbering.xml')
+                    ct_xml = out_zip.read('[Content_Types].xml').decode()
+                    rels_xml = out_zip.read('word/_rels/document.xml.rels').decode()
+                    ns_ct = '{http://schemas.openxmlformats.org/package/2006/content-types}'
+                    ct_root = doc.element.fromstring(ct_xml)
+                    override = ct_root.makeelement(ns_ct + 'Override', {
+                        'PartName': '/word/numbering.xml',
+                        'ContentType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml',
+                    })
+                    ct_root.append(override)
+                    ns_rel = '{http://schemas.openxmlformats.org/package/2006/relationships}'
+                    rel_root = doc.element.fromstring(rels_xml)
+                    rel = rel_root.makeelement(ns_rel + 'Relationship', {
+                        'Id': 'rIdNum',
+                        'Type': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering',
+                        'Target': 'numbering.xml',
+                    })
+                    rel_root.append(rel)
+                    with zipfile.ZipFile(output_path, 'w') as final_zip:
+                        for name in out_names:
+                            data = out_zip.read(name)
+                            final_zip.writestr(name, data)
+                        final_zip.writestr('word/numbering.xml', numbering_xml)
+                        final_zip.writestr('[Content_Types].xml', doc.element.tostring(ct_root, xml_declaration=True, encoding='UTF-8', standalone=True))
+                        final_zip.writestr('word/_rels/document.xml.rels', doc.element.tostring(rel_root, xml_declaration=True, encoding='UTF-8', standalone=True))
+                    return
+    with open(output_path, 'wb') as f:
+        f.write(buf.getvalue())
 
 
 def test_write_inline_with_table():
