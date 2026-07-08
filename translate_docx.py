@@ -3,8 +3,10 @@ import json
 import os
 import sys
 import time
+import re
 from openai import OpenAI
-from docx import Document
+from docx import Document, Document as DocxDocument
+from docx.shared import Pt, RGBColor
 
 
 def load_config(path="config.json"):
@@ -110,9 +112,24 @@ def _build_chunk_text(chunk):
     return "\n".join(lines)
 
 
-def _parse_translated_response(response_text, chunk_ids):
+def restore_placeholders(translated_text, original_text):
+    placeholder_pattern = r'\{\{[^}]+\}\}'
+    placeholders = re.findall(placeholder_pattern, original_text)
+    for ph in placeholders:
+        if ph not in translated_text:
+            orig_pos = original_text.index(ph)
+            ratio = orig_pos / max(len(original_text), 1)
+            insert_pos = int(ratio * len(translated_text))
+            translated_text = translated_text[:insert_pos] + ph + translated_text[insert_pos:]
+    return translated_text
+
+
+def _parse_translated_response(response_text, chunk_ids, original_text=None):
     results = {}
-    for line in response_text.strip().split("\n"):
+    lines = response_text.strip().split("\n")
+    if lines and not lines[0].strip().startswith("[P"):
+        lines = lines[1:]
+    for line in lines:
         line = line.strip()
         if not line:
             continue
@@ -122,10 +139,20 @@ def _parse_translated_response(response_text, chunk_ids):
                 results[pid] = text
                 break
     if len(results) < len(chunk_ids):
-        lines = [l for l in response_text.strip().split("\n") if l.strip()]
+        all_lines = [l for l in response_text.strip().split("\n") if l.strip()]
         for i, pid in enumerate(chunk_ids):
-            if pid not in results and i < len(lines):
-                results[pid] = lines[i].strip()
+            if pid not in results and i < len(all_lines):
+                results[pid] = all_lines[i].strip()
+    if original_text:
+        original_lines = {}
+        for line in original_text.strip().split("\n"):
+            for pid in chunk_ids:
+                if line.startswith(f"[{pid}]"):
+                    original_lines[pid] = line[len(f"[{pid}]"):].strip()
+                    break
+        for pid in results:
+            if pid in original_lines:
+                results[pid] = restore_placeholders(results[pid], original_lines[pid])
     return results
 
 
@@ -151,12 +178,24 @@ def translate_chunk(chunk, target_lang, provider):
                 temperature=0.0,
             )
             translated = resp.choices[0].message.content
-            parsed = _parse_translated_response(translated, chunk_ids)
+            parsed = _parse_translated_response(translated, chunk_ids, chunk_text)
             for p in chunk:
                 if p["id"] in parsed:
                     translated_text = parsed[p["id"]]
-                    p["runs"][0]["text"] = translated_text
-                    p["runs"] = [p["runs"][0]]
+                    original_runs = p["runs"]
+                    original_full_text = "".join(r["text"] for r in original_runs)
+                    if original_full_text and len(original_runs) > 1:
+                        start = 0
+                        for j, run in enumerate(original_runs):
+                            proportion = len(run["text"]) / len(original_full_text)
+                            chunk_len = int(proportion * len(translated_text))
+                            if j == len(original_runs) - 1:
+                                run["text"] = translated_text[start:]
+                            else:
+                                run["text"] = translated_text[start:start + chunk_len]
+                                start += chunk_len
+                    elif original_runs:
+                        original_runs[0]["text"] = translated_text
             return chunk
         except Exception as e:
             last_error = e
@@ -168,14 +207,20 @@ def translate_chunk(chunk, target_lang, provider):
 def translate_all(paragraphs, target_lang, provider):
     chunks = chunk_paragraphs(paragraphs)
     all_translated = []
-    for chunk in chunks:
-        translated = translate_chunk(chunk, target_lang, provider)
-        all_translated.extend(translated)
+    failed_chunks = []
+    for i, chunk in enumerate(chunks):
+        try:
+            translated = translate_chunk(chunk, target_lang, provider)
+            all_translated.extend(translated)
+        except Exception as e:
+            print(f"Error translating chunk {i}: {e}", file=sys.stderr)
+            failed_chunks.append(i)
+    if failed_chunks:
+        print(f"Warning: {len(failed_chunks)} chunk(s) failed: {failed_chunks}", file=sys.stderr)
     return all_translated
 
 
 def write_inline(original_path, translated_paragraphs, output_path):
-    from docx import Document as DocxDocument
     doc = DocxDocument(original_path)
     trans_by_id = {p["id"]: p for p in translated_paragraphs}
     for i, para in enumerate(doc.paragraphs):
@@ -214,10 +259,12 @@ def test_config_loading():
     }
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(cfg, f)
-        f.flush()
-        result = load_config(f.name)
+        fname = f.name
+    try:
+        result = load_config(fname)
         assert result == cfg
-        os.unlink(f.name)
+    finally:
+        os.unlink(fname)
 
 
 def test_get_provider():
@@ -276,7 +323,7 @@ def test_extract_paragraphs_with_table():
     doc.save(path)
     paragraphs = extract_paragraphs(path)
     table_paras = [p for p in paragraphs if p["in_table"]]
-    assert len(table_paras) >= 3, f"Expected >=3 table paragraphs, got {len(table_paras)} total paragraphs={len(paragraphs)}"
+    assert len(table_paras) == 6, f"Expected 6 table paragraphs, got {len(table_paras)} total paragraphs={len(paragraphs)}"
     for p in table_paras:
         assert p["cell_row"] is not None, f"Expected cell_row, got None for {p}"
         assert p["cell_col"] is not None, f"Expected cell_col, got None for {p}"
@@ -336,6 +383,24 @@ def test_write_inline():
     os.unlink(out)
 
 
+def _apply_run_formatting(run, run_data):
+    run.bold = run_data.get("bold")
+    run.italic = run_data.get("italic")
+    run.underline = run_data.get("underline")
+    if run_data.get("font_name"):
+        run.font.name = run_data["font_name"]
+    if run_data.get("font_size"):
+        try:
+            run.font.size = Pt(float(run_data["font_size"].rstrip("pt")))
+        except (ValueError, AttributeError):
+            pass
+    if run_data.get("color"):
+        try:
+            run.font.color.rgb = RGBColor.from_string(run_data["color"])
+        except (ValueError, AttributeError):
+            pass
+
+
 def write_side_by_side(original_path, original_paras, translated_paras, output_path):
     src = Document(original_path)
     doc = Document()
@@ -347,6 +412,30 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
             new_section.right_margin = section.right_margin
             new_section.top_margin = section.top_margin
             new_section.bottom_margin = section.bottom_margin
+            for src_para in section.header.paragraphs:
+                p = new_section.header.add_paragraph()
+                p.alignment = src_para.alignment
+                for run in src_para.runs:
+                    r = p.add_run(run.text)
+                    r.bold = run.bold
+                    r.italic = run.italic
+                    r.underline = run.underline
+                    if run.font.name:
+                        r.font.name = run.font.name
+                    if run.font.size:
+                        r.font.size = run.font.size
+            for src_para in section.footer.paragraphs:
+                p = new_section.footer.add_paragraph()
+                p.alignment = src_para.alignment
+                for run in src_para.runs:
+                    r = p.add_run(run.text)
+                    r.bold = run.bold
+                    r.italic = run.italic
+                    r.underline = run.underline
+                    if run.font.name:
+                        r.font.name = run.font.name
+                    if run.font.size:
+                        r.font.size = run.font.size
         break
     trans_by_id = {p["id"]: p for p in translated_paras}
     table = doc.add_table(rows=len(original_paras), cols=2)
@@ -357,12 +446,46 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
         right_cell = table.rows[i].cells[1]
         for run_data in op["runs"]:
             p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
-            p.add_run(run_data["text"])
+            run = p.add_run(run_data["text"])
+            _apply_run_formatting(run, run_data)
         tp = trans_by_id.get(pid, op)
         for run_data in tp["runs"]:
             p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
-            p.add_run(run_data["text"])
+            run = p.add_run(run_data["text"])
+            _apply_run_formatting(run, run_data)
     doc.save(output_path)
+
+
+def test_write_inline_with_table():
+    from docx import Document
+    import tempfile, os
+    doc = Document()
+    doc.add_paragraph("Header text")
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Cell A1"
+    table.cell(0, 1).text = "Cell B1"
+    table.cell(1, 0).text = "Cell A2"
+    table.cell(1, 1).text = "Cell B2"
+    src = os.path.join(tempfile.mkdtemp(), "source.docx")
+    doc.save(src)
+    translated = [
+        {"id": "P0", "runs": [{"text": "Header text trans"}], "alignment": None, "in_table": False},
+        {"id": "P1", "runs": [{"text": "Celula A1"}], "alignment": None, "in_table": True, "cell_row": 0, "cell_col": 0},
+        {"id": "P2", "runs": [{"text": "Celula B1"}], "alignment": None, "in_table": True, "cell_row": 0, "cell_col": 1},
+        {"id": "P3", "runs": [{"text": "Celula A2"}], "alignment": None, "in_table": True, "cell_row": 1, "cell_col": 0},
+        {"id": "P4", "runs": [{"text": "Celula B2"}], "alignment": None, "in_table": True, "cell_row": 1, "cell_col": 1},
+    ]
+    out = os.path.join(tempfile.mkdtemp(), "output.docx")
+    write_inline(src, translated, out)
+    result = Document(out)
+    assert result.paragraphs[0].text == "Header text trans"
+    out_table = result.tables[0]
+    assert out_table.cell(0, 0).text == "Celula A1"
+    assert out_table.cell(0, 1).text == "Celula B1"
+    assert out_table.cell(1, 0).text == "Celula A2"
+    assert out_table.cell(1, 1).text == "Celula B2"
+    os.unlink(src)
+    os.unlink(out)
 
 
 def test_cli_parser():
@@ -397,6 +520,30 @@ def test_write_side_by_side():
     os.unlink(src); os.unlink(out)
 
 
+def test_restore_placeholders():
+    original = "Hello {{client_name}}, your balance is {{amount}}"
+    translated = "Salut {{client_name}}, soldul tau este {{amount}}"
+    restored = restore_placeholders(translated, original)
+    assert "{{client_name}}" in restored
+    assert "{{amount}}" in restored
+
+
+def test_restore_missing_placeholder():
+    original = "Hello {{client_name}}"
+    translated = "Salut"
+    restored = restore_placeholders(translated, original)
+    assert "{{client_name}}" in restored
+
+
+def test_parse_translated_response_protects_placeholders():
+    chunk_ids = ["P0", "P1"]
+    response_text = "[P0] Salut {{client_name}}\n[P1] Soldul este {{amount}}"
+    original_text = "[P0] Hello {{client_name}}\n[P1] Your balance is {{amount}}"
+    result = _parse_translated_response(response_text, chunk_ids, original_text)
+    assert "{{client_name}}" in result["P0"]
+    assert "{{amount}}" in result["P1"]
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Translate DOCX documents using LLM")
     parser.add_argument("input", help="Path to input DOCX file")
@@ -422,6 +569,10 @@ def main():
         stem = args.input.rsplit(".", 1)[0]
         suffix = f"_{args.mode}_{args.lang}.docx" if args.mode == "side-by-side" else f"_{args.lang}.docx"
         output = f"{stem}{suffix}"
+    if os.path.exists(output):
+        stem = output.rsplit(".docx", 1)[0]
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output = f"{stem}_{timestamp}.docx"
     paragraphs = extract_paragraphs(args.input)
     translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider)
     if args.mode == "side-by-side":
@@ -455,6 +606,14 @@ if __name__ == "__main__":
         print("  test_write_inline PASS")
         test_write_side_by_side()
         print("  test_write_side_by_side PASS")
+        test_write_inline_with_table()
+        print("  test_write_inline_with_table PASS")
         test_cli_parser()
         print("  test_cli_parser PASS")
+        test_restore_placeholders()
+        print("  test_restore_placeholders PASS")
+        test_restore_missing_placeholder()
+        print("  test_restore_missing_placeholder PASS")
+        test_parse_translated_response_protects_placeholders()
+        print("  test_parse_translated_response_protects_placeholders PASS")
         print("All tests PASS")
