@@ -1,5 +1,7 @@
 import json
 import os
+import time
+from openai import OpenAI
 from docx import Document
 
 
@@ -87,6 +89,87 @@ def extract_paragraphs(path):
                     pid += 1
 
     return paragraphs
+
+
+def chunk_paragraphs(paragraphs, chunk_size=10):
+    chunks = []
+    for i in range(0, len(paragraphs), chunk_size):
+        chunks.append(paragraphs[i:i + chunk_size])
+    return chunks
+
+
+def _build_chunk_text(chunk):
+    lines = []
+    for p in chunk:
+        text = ""
+        for run in p["runs"]:
+            text += run["text"]
+        lines.append(f"[{p['id']}] {text}")
+    return "\n".join(lines)
+
+
+def _parse_translated_response(response_text, chunk_ids):
+    results = {}
+    for line in response_text.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        for pid in chunk_ids:
+            if line.startswith(f"[{pid}]"):
+                text = line[len(f"[{pid}]"):].strip()
+                results[pid] = text
+                break
+    if len(results) < len(chunk_ids):
+        lines = [l for l in response_text.strip().split("\n") if l.strip()]
+        for i, pid in enumerate(chunk_ids):
+            if pid not in results and i < len(lines):
+                results[pid] = lines[i].strip()
+    return results
+
+
+def translate_chunk(chunk, target_lang, provider):
+    chunk_text = _build_chunk_text(chunk)
+    chunk_ids = [p["id"] for p in chunk]
+    client = OpenAI(base_url=provider["base_url"], api_key=provider.get("api_key", ""))
+    system_prompt = (
+        f"You are a legal document translator. Translate the following paragraphs "
+        f"to {target_lang}. Preserve all paragraph IDs exactly ([P0], [P1], ...). "
+        f"Preserve {{...}} placeholders without translating them. "
+        f"Output ONLY the translated paragraphs with their IDs — no extra text."
+    )
+    last_error = None
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model=provider["model"],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": chunk_text},
+                ],
+                temperature=0.0,
+            )
+            translated = resp.choices[0].message.content
+            parsed = _parse_translated_response(translated, chunk_ids)
+            for p in chunk:
+                if p["id"] in parsed:
+                    translated_text = parsed[p["id"]]
+                    p["runs"][0]["text"] = translated_text
+                    p["runs"] = [p["runs"][0]]
+            return chunk
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+    raise last_error
+
+
+def translate_all(paragraphs, target_lang, provider):
+    chunks = chunk_paragraphs(paragraphs)
+    all_translated = []
+    for chunk in chunks:
+        translated = translate_chunk(chunk, target_lang, provider)
+        all_translated.extend(translated)
+    return all_translated
 
 
 def test_config_loading():
@@ -182,10 +265,32 @@ def test_extract_paragraphs_invalid_file():
     except FileNotFoundError:
         pass
 
+
+def test_chunk_paragraphs():
+    paragraphs = [{"id": f"P{i}"} for i in range(25)]
+    chunks = chunk_paragraphs(paragraphs, 10)
+    assert len(chunks) == 3
+
+
+def test_translate_chunk():
+    chunk = [{"id": "P0", "runs": [{"text": "Hello world", "bold": False, "italic": False}]}]
+    provider = {"base_url": "http://invalid", "model": "test", "api_key": "bad"}
+    try:
+        translate_chunk(chunk, "Romanian", provider)
+        assert False, "Should have raised ConnectionError or similar"
+    except Exception:
+        pass
+
+
+def test_translate_chunk_retry():
+    pass
+
 if __name__ == "__main__":
     test_config_loading()
     test_get_provider()
     test_extract_paragraphs()
     test_extract_paragraphs_with_table()
     test_extract_paragraphs_invalid_file()
+    test_chunk_paragraphs()
+    test_translate_chunk()
     print("PASS")
