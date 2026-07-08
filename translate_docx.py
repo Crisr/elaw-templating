@@ -51,13 +51,17 @@ def get_provider(config, name=None):
 NS_W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
 
 
-def _extract_numpr_xml(para):
+def _extract_numpr(para):
     pPr = para._element.find(f'{NS_W}pPr')
     if pPr is not None:
         numPr = pPr.find(f'{NS_W}numPr')
         if numPr is not None:
-            from lxml import etree
-            return etree.tostring(numPr).decode()
+            ilvl = numPr.find(f'{NS_W}ilvl')
+            numId = numPr.find(f'{NS_W}numId')
+            return {
+                'ilvl': ilvl.get(f'{NS_W}val') if ilvl is not None else None,
+                'numId': numId.get(f'{NS_W}val') if numId is not None else None,
+            }
     return None
 
 
@@ -105,7 +109,7 @@ def extract_paragraphs(path):
             "in_table": cell_row is not None,
             "cell_row": cell_row,
             "cell_col": cell_col,
-            "numpr_xml": _extract_numpr_xml(para),
+            "numpr": _extract_numpr(para),
         })
         pid += 1
 
@@ -120,7 +124,7 @@ def extract_paragraphs(path):
                         "in_table": True,
                         "cell_row": row_idx,
                         "cell_col": col_idx,
-                        "numpr_xml": _extract_numpr_xml(para),
+                        "numpr": _extract_numpr(para),
                     })
                     pid += 1
 
@@ -501,6 +505,26 @@ def _apply_run_formatting(run, run_data):
             pass
 
 
+def _apply_numpr(para, numpr, doc):
+    if not numpr:
+        return
+    ilvl = numpr.get("ilvl", "0")
+    numId = numpr.get("numId")
+    if numId is None:
+        return
+    pPr = para._element.find(f'{NS_W}pPr')
+    if pPr is None:
+        pPr = doc.element.makeelement(NS_W + 'pPr', {})
+        para._element.insert(0, pPr)
+    existing = pPr.find(f'{NS_W}numPr')
+    if existing is not None:
+        pPr.remove(existing)
+    numPr_el = doc.element.makeelement(NS_W + 'numPr', {})
+    numPr_el.append(doc.element.makeelement(NS_W + 'ilvl', {f'{NS_W}val': ilvl}))
+    numPr_el.append(doc.element.makeelement(NS_W + 'numId', {f'{NS_W}val': numId}))
+    pPr.append(numPr_el)
+
+
 def write_side_by_side(original_path, original_paras, translated_paras, output_path):
     src = Document(original_path)
     doc = Document()
@@ -526,7 +550,6 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
         child.set(ns + 'color', 'auto')
         tbl_borders.append(child)
     tbl_pr.append(tbl_borders)
-    from lxml import etree
     for i, op in enumerate(original_paras):
         pid = op["id"]
         left_cell = table.rows[i].cells[0]
@@ -535,24 +558,13 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
             p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
-        np = op.get("numpr_xml")
-        if np:
-            pPr = left_cell.paragraphs[0]._element.find(f'{NS_W}pPr')
-            if pPr is None:
-                pPr = doc.element.makeelement(NS_W + 'pPr', {})
-                left_cell.paragraphs[0]._element.insert(0, pPr)
-            pPr.append(etree.fromstring(np))
+        _apply_numpr(left_cell.paragraphs[0], op.get("numpr"), doc)
         tp = trans_by_id.get(pid, op)
         for run_data in tp["runs"]:
             p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
-        if np:
-            pPr = right_cell.paragraphs[0]._element.find(f'{NS_W}pPr')
-            if pPr is None:
-                pPr = doc.element.makeelement(NS_W + 'pPr', {})
-                right_cell.paragraphs[0]._element.insert(0, pPr)
-            pPr.append(etree.fromstring(np))
+        _apply_numpr(right_cell.paragraphs[0], tp.get("numpr"), doc)
     buf = BytesIO()
     doc.save(buf)
     buf.seek(0)
