@@ -25,8 +25,11 @@ def get_provider(config, name=None):
     if api_key_env:
         provider["api_key"] = os.environ.get(api_key_env)
         if not provider["api_key"]:
-            from dotenv import load_dotenv
-            load_dotenv()
+            try:
+                from dotenv import load_dotenv  # type: ignore
+                load_dotenv()
+            except ImportError:
+                pass
             provider["api_key"] = os.environ.get(api_key_env)
     return provider
 
@@ -139,7 +142,7 @@ def _parse_translated_response(response_text, chunk_ids, original_text=None):
                 results[pid] = text
                 break
     if len(results) < len(chunk_ids):
-        all_lines = [l for l in response_text.strip().split("\n") if l.strip()]
+        all_lines = [ln for ln in response_text.strip().split("\n") if ln.strip()]
         for i, pid in enumerate(chunk_ids):
             if pid not in results and i < len(all_lines):
                 results[pid] = all_lines[i].strip()
@@ -166,7 +169,7 @@ def translate_chunk(chunk, target_lang, provider):
         f"Preserve {{...}} placeholders without translating them. "
         f"Output ONLY the translated paragraphs with their IDs — no extra text."
     )
-    last_error = None
+    last_error = RuntimeError("translate_chunk failed after all retries")
     for attempt in range(3):
         try:
             resp = client.chat.completions.create(
@@ -246,7 +249,9 @@ def write_inline(original_path, translated_paragraphs, output_path):
 
 
 def test_config_loading():
-    import json, tempfile, os
+    import json
+    import tempfile
+    import os
     cfg = {
         "default_provider": "test",
         "providers": {
@@ -285,7 +290,8 @@ def test_get_provider():
 
 def test_extract_paragraphs():
     from docx import Document
-    import tempfile, os
+    import tempfile
+    import os
     doc = Document()
     doc.add_paragraph("Hello world")
     p = doc.add_paragraph()
@@ -297,7 +303,7 @@ def test_extract_paragraphs():
     assert len(paragraphs) == 2
     p0 = paragraphs[0]
     assert p0["id"] == "P0"
-    assert p0["in_table"] == False
+    assert not p0["in_table"]
     assert p0["cell_row"] is None
     assert p0["cell_col"] is None
     assert p0["alignment"] is None or p0["alignment"] is not None
@@ -306,14 +312,15 @@ def test_extract_paragraphs():
     assert p0["runs"][0]["underline"] is None
     p1 = paragraphs[1]
     assert p1["runs"][0]["text"] == "Bold"
-    assert p1["runs"][0]["bold"] == True
+    assert p1["runs"][0]["bold"]
     assert p1["runs"][1]["text"] == " Normal"
     os.unlink(path)
 
 
 def test_extract_paragraphs_with_table():
     from docx import Document
-    import tempfile, os
+    import tempfile
+    import os
     doc = Document()
     table = doc.add_table(rows=2, cols=3)
     table.cell(0, 0).text = "A1"
@@ -363,7 +370,8 @@ def test_translate_chunk_retry():
 
 def test_write_inline():
     from docx import Document
-    import tempfile, os
+    import tempfile
+    import os
     doc = Document()
     p = doc.add_paragraph()
     p.add_run("Original text")
@@ -414,7 +422,8 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
             new_section.bottom_margin = section.bottom_margin
             for src_para in section.header.paragraphs:
                 p = new_section.header.add_paragraph()
-                p.alignment = src_para.alignment
+                if src_para.alignment is not None:
+                    p.alignment = src_para.alignment
                 for run in src_para.runs:
                     r = p.add_run(run.text)
                     r.bold = run.bold
@@ -426,7 +435,8 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
                         r.font.size = run.font.size
             for src_para in section.footer.paragraphs:
                 p = new_section.footer.add_paragraph()
-                p.alignment = src_para.alignment
+                if src_para.alignment is not None:
+                    p.alignment = src_para.alignment
                 for run in src_para.runs:
                     r = p.add_run(run.text)
                     r.bold = run.bold
@@ -458,7 +468,8 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
 
 def test_write_inline_with_table():
     from docx import Document
-    import tempfile, os
+    import tempfile
+    import os
     doc = Document()
     doc.add_paragraph("Header text")
     table = doc.add_table(rows=2, cols=2)
@@ -501,7 +512,8 @@ def test_cli_parser():
 
 def test_write_side_by_side():
     from docx import Document
-    import tempfile, os
+    import tempfile
+    import os
     doc = Document()
     p = doc.add_paragraph()
     p.add_run("Original text")
@@ -517,7 +529,8 @@ def test_write_side_by_side():
     assert len(table.rows) == 1
     assert "Original text" in table.rows[0].cells[0].text
     assert "Text tradus" in table.rows[0].cells[1].text
-    os.unlink(src); os.unlink(out)
+    os.unlink(src)
+    os.unlink(out)
 
 
 def test_restore_placeholders():
