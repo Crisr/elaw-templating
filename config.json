@@ -1,0 +1,20 @@
+{
+  "default_provider": "opencode-go",
+  "providers": {
+    "opencode-go": {
+      "base_url": "https://api.opencode.ai/v1",
+      "model": "opencode/deepseek-v4-flash",
+      "api_key_env": "OPENCODE_API_KEY"
+    },
+    "lm-studio": {
+      "base_url": "http://localhost:1234/v1",
+      "model": "qwen-2.5-14b-instruct",
+      "api_key_env": null
+    },
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini",
+      "api_key_env": "OPENAI_API_KEY"
+    }
+  }
+}
