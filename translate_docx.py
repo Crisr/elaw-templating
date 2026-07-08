@@ -493,32 +493,6 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
             new_section.right_margin = section.right_margin
             new_section.top_margin = section.top_margin
             new_section.bottom_margin = section.bottom_margin
-            for src_para in section.header.paragraphs:
-                p = new_section.header.add_paragraph()
-                if src_para.alignment is not None:
-                    p.alignment = src_para.alignment
-                for run in src_para.runs:
-                    r = p.add_run(run.text)
-                    r.bold = run.bold
-                    r.italic = run.italic
-                    r.underline = run.underline
-                    if run.font.name:
-                        r.font.name = run.font.name
-                    if run.font.size:
-                        r.font.size = run.font.size
-            for src_para in section.footer.paragraphs:
-                p = new_section.footer.add_paragraph()
-                if src_para.alignment is not None:
-                    p.alignment = src_para.alignment
-                for run in src_para.runs:
-                    r = p.add_run(run.text)
-                    r.bold = run.bold
-                    r.italic = run.italic
-                    r.underline = run.underline
-                    if run.font.name:
-                        r.font.name = run.font.name
-                    if run.font.size:
-                        r.font.size = run.font.size
         break
     trans_by_id = {p["id"]: p for p in translated_paras}
     table = doc.add_table(rows=len(original_paras), cols=2)
