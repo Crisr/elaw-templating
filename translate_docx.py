@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import os
 import sys
@@ -639,9 +640,10 @@ def main():
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output = f"{stem}_{timestamp}.docx"
     paragraphs = extract_paragraphs(args.input)
+    originals = copy.deepcopy(paragraphs) if args.mode == "side-by-side" else None
     translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider, args.concurrency)
     if args.mode == "side-by-side":
-        write_side_by_side(args.input, paragraphs, translated, output)
+        write_side_by_side(args.input, originals, translated, output)
     else:
         write_inline(args.input, translated, output)
     print(_["saved"].format(output=output))
