@@ -7,7 +7,6 @@ import time
 import re
 import threading
 import zipfile
-from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from docx import Document, Document as DocxDocument
@@ -505,24 +504,81 @@ def _apply_run_formatting(run, run_data):
             pass
 
 
-def _apply_numpr(para, numpr, doc):
-    if not numpr:
-        return
-    ilvl = numpr.get("ilvl", "0")
-    numId = numpr.get("numId")
-    if numId is None:
-        return
-    pPr = para._element.find(f'{NS_W}pPr')
-    if pPr is None:
-        pPr = doc.element.makeelement(NS_W + 'pPr', {})
-        para._element.insert(0, pPr)
-    existing = pPr.find(f'{NS_W}numPr')
-    if existing is not None:
-        pPr.remove(existing)
-    numPr_el = doc.element.makeelement(NS_W + 'numPr', {})
-    numPr_el.append(doc.element.makeelement(NS_W + 'ilvl', {f'{NS_W}val': ilvl}))
-    numPr_el.append(doc.element.makeelement(NS_W + 'numId', {f'{NS_W}val': numId}))
-    pPr.append(numPr_el)
+def _format_number(value, fmt):
+    if fmt == 'upperRoman':
+        vals = [(1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'), (100, 'C'),
+                (90, 'XC'), (50, 'L'), (40, 'XL'), (10, 'X'), (9, 'IX'),
+                (5, 'V'), (4, 'IV'), (1, 'I')]
+        result = ''
+        n = value
+        for a, r in vals:
+            while n >= a:
+                result += r
+                n -= a
+        return result
+    if fmt == 'lowerRoman':
+        vals = [(1000, 'm'), (900, 'cm'), (500, 'd'), (400, 'cd'), (100, 'c'),
+                (90, 'xc'), (50, 'l'), (40, 'xl'), (10, 'x'), (9, 'ix'),
+                (5, 'v'), (4, 'iv'), (1, 'i')]
+        result = ''
+        n = value
+        for a, r in vals:
+            while n >= a:
+                result += r
+                n -= a
+        return result
+    if fmt == 'decimal':
+        return str(value)
+    if fmt == 'lowerLetter':
+        return chr(ord('a') + value - 1) if 1 <= value <= 26 else str(value)
+    if fmt == 'upperLetter':
+        return chr(ord('A') + value - 1) if 1 <= value <= 26 else str(value)
+    return str(value)
+
+
+_NUMBERING_FMT_CACHE = {}
+
+
+def _get_numpr_fmt(original_path, numId):
+    key = (original_path, numId)
+    if key in _NUMBERING_FMT_CACHE:
+        return _NUMBERING_FMT_CACHE[key]
+    try:
+        with zipfile.ZipFile(original_path, 'r') as z:
+            n = z.read('word/numbering.xml').decode()
+            abs_match = re.search(rf'<w:num w:numId=\"{numId}\".*?<w:abstractNumId w:val=\"(\d+)\"', n, re.DOTALL)
+            if not abs_match:
+                _NUMBERING_FMT_CACHE[key] = None
+                return None
+            abs_id = abs_match.group(1)
+            fmt_match = re.search(
+                rf'<w:abstractNum w:abstractNumId=\"{abs_id}\".*?<w:lvl w:ilvl=\"0\".*?<w:numFmt w:val=\"([^\"]+)\"',
+                n, re.DOTALL
+            )
+            fmt = fmt_match.group(1) if fmt_match else None
+            _NUMBERING_FMT_CACHE[key] = fmt
+            return fmt
+    except Exception:
+        return None
+
+
+def _apply_numbering_labels(paras, original_path):
+    num_groups = {}
+    for p in paras:
+        np = p.get("numpr")
+        if np and np.get("numId"):
+            key = np["numId"]
+            num_groups.setdefault(key, []).append(p)
+    for numId, group in num_groups.items():
+        fmt = _get_numpr_fmt(original_path, numId)
+        if not fmt or fmt == 'bullet':
+            continue
+        for idx, p in enumerate(group):
+            number = _format_number(idx + 1, fmt)
+            prefix = number + ". "
+            if p["runs"]:
+                p["runs"][0]["text"] = prefix + p["runs"][0]["text"]
+    return paras
 
 
 def write_side_by_side(original_path, original_paras, translated_paras, output_path):
@@ -550,6 +606,8 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
         child.set(ns + 'color', 'auto')
         tbl_borders.append(child)
     tbl_pr.append(tbl_borders)
+    _apply_numbering_labels(original_paras, original_path)
+    _apply_numbering_labels(translated_paras, original_path)
     for i, op in enumerate(original_paras):
         pid = op["id"]
         left_cell = table.rows[i].cells[0]
@@ -558,49 +616,12 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
             p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
-        _apply_numpr(left_cell.paragraphs[0], op.get("numpr"), doc)
         tp = trans_by_id.get(pid, op)
         for run_data in tp["runs"]:
             p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
-        _apply_numpr(right_cell.paragraphs[0], tp.get("numpr"), doc)
-    buf = BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    with zipfile.ZipFile(buf, 'r') as out_zip:
-        out_names = out_zip.namelist()
-        if 'word/numbering.xml' not in out_names:
-            with zipfile.ZipFile(original_path, 'r') as src_zip:
-                if 'word/numbering.xml' in src_zip.namelist():
-                    numbering_xml = src_zip.read('word/numbering.xml')
-                    ct_xml = out_zip.read('[Content_Types].xml').decode()
-                    rels_xml = out_zip.read('word/_rels/document.xml.rels').decode()
-                    ns_ct = '{http://schemas.openxmlformats.org/package/2006/content-types}'
-                    ct_root = doc.element.fromstring(ct_xml)
-                    override = ct_root.makeelement(ns_ct + 'Override', {
-                        'PartName': '/word/numbering.xml',
-                        'ContentType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml',
-                    })
-                    ct_root.append(override)
-                    ns_rel = '{http://schemas.openxmlformats.org/package/2006/relationships}'
-                    rel_root = doc.element.fromstring(rels_xml)
-                    rel = rel_root.makeelement(ns_rel + 'Relationship', {
-                        'Id': 'rIdNum',
-                        'Type': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering',
-                        'Target': 'numbering.xml',
-                    })
-                    rel_root.append(rel)
-                    with zipfile.ZipFile(output_path, 'w') as final_zip:
-                        for name in out_names:
-                            data = out_zip.read(name)
-                            final_zip.writestr(name, data)
-                        final_zip.writestr('word/numbering.xml', numbering_xml)
-                        final_zip.writestr('[Content_Types].xml', doc.element.tostring(ct_root, xml_declaration=True, encoding='UTF-8', standalone=True))
-                        final_zip.writestr('word/_rels/document.xml.rels', doc.element.tostring(rel_root, xml_declaration=True, encoding='UTF-8', standalone=True))
-                    return
-    with open(output_path, 'wb') as f:
-        f.write(buf.getvalue())
+    doc.save(output_path)
 
 
 def test_write_inline_with_table():
