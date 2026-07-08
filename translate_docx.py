@@ -334,6 +334,56 @@ def test_write_inline():
     os.unlink(out)
 
 
+def write_side_by_side(original_path, original_paras, translated_paras, output_path):
+    src = Document(original_path)
+    doc = Document()
+    for section in src.sections:
+        for new_section in doc.sections:
+            new_section.page_width = section.page_width
+            new_section.page_height = section.page_height
+            new_section.left_margin = section.left_margin
+            new_section.right_margin = section.right_margin
+            new_section.top_margin = section.top_margin
+            new_section.bottom_margin = section.bottom_margin
+        break
+    trans_by_id = {p["id"]: p for p in translated_paras}
+    table = doc.add_table(rows=len(original_paras), cols=2)
+    table.style = 'Table Grid'
+    for i, op in enumerate(original_paras):
+        pid = op["id"]
+        left_cell = table.rows[i].cells[0]
+        right_cell = table.rows[i].cells[1]
+        for run_data in op["runs"]:
+            p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
+            p.add_run(run_data["text"])
+        tp = trans_by_id.get(pid, op)
+        for run_data in tp["runs"]:
+            p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
+            p.add_run(run_data["text"])
+    doc.save(output_path)
+
+
+def test_write_side_by_side():
+    from docx import Document
+    import tempfile, os
+    doc = Document()
+    p = doc.add_paragraph()
+    p.add_run("Original text")
+    src = os.path.join(tempfile.mkdtemp(), "source.docx")
+    doc.save(src)
+    originals = [{"id": "P0", "runs": [{"text": "Original text", "bold": False}], "alignment": None, "in_table": False}]
+    translated = [{"id": "P0", "runs": [{"text": "Text tradus", "bold": False}], "alignment": None, "in_table": False}]
+    out = os.path.join(tempfile.mkdtemp(), "output.docx")
+    write_side_by_side(src, originals, translated, out)
+    result = Document(out)
+    assert len(result.tables) == 1
+    table = result.tables[0]
+    assert len(table.rows) == 1
+    assert "Original text" in table.rows[0].cells[0].text
+    assert "Text tradus" in table.rows[0].cells[1].text
+    os.unlink(src); os.unlink(out)
+
+
 if __name__ == "__main__":
     test_config_loading()
     test_get_provider()
@@ -343,4 +393,5 @@ if __name__ == "__main__":
     test_chunk_paragraphs()
     test_translate_chunk()
     test_write_inline()
+    test_write_side_by_side()
     print("PASS")
