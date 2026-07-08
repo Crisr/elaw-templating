@@ -1,5 +1,7 @@
+import argparse
 import json
 import os
+import sys
 import time
 from openai import OpenAI
 from docx import Document
@@ -363,6 +365,17 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
     doc.save(output_path)
 
 
+def test_cli_parser():
+    args = parse_args(['input.docx', '--lang', 'ro'])
+    assert args.input == 'input.docx'
+    assert args.lang == 'ro'
+    assert args.mode == 'inline'
+    args = parse_args(['input.docx', '--lang', 'en', '--mode', 'side-by-side'])
+    assert args.input == 'input.docx'
+    assert args.lang == 'en'
+    assert args.mode == 'side-by-side'
+
+
 def test_write_side_by_side():
     from docx import Document
     import tempfile, os
@@ -384,14 +397,64 @@ def test_write_side_by_side():
     os.unlink(src); os.unlink(out)
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Translate DOCX documents using LLM")
+    parser.add_argument("input", help="Path to input DOCX file")
+    parser.add_argument("--lang", "-l", required=True, choices=["ro", "en"],
+                        help="Target language (ro=Romanian, en=English)")
+    parser.add_argument("--mode", "-m", choices=["inline", "side-by-side"],
+                        default="inline", help="Output layout mode")
+    parser.add_argument("--output", "-o", help="Output path (auto-generated if omitted)")
+    parser.add_argument("--provider", "-p", help="Provider key from config.json")
+    parser.add_argument("--model", help="Override model name")
+    parser.add_argument("--config", "-c", default="config.json", help="Config file path")
+    return parser.parse_args(argv)
+
+
+def main():
+    args = parse_args()
+    config = load_config(args.config)
+    provider = get_provider(config, args.provider)
+    if args.model:
+        provider["model"] = args.model
+    output = args.output
+    if not output:
+        stem = args.input.rsplit(".", 1)[0]
+        suffix = f"_{args.mode}_{args.lang}.docx" if args.mode == "side-by-side" else f"_{args.lang}.docx"
+        output = f"{stem}{suffix}"
+    paragraphs = extract_paragraphs(args.input)
+    translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider)
+    if args.mode == "side-by-side":
+        write_side_by_side(args.input, paragraphs, translated, output)
+    else:
+        write_inline(args.input, translated, output)
+    print(f"Translated document saved to: {output}")
+
+
 if __name__ == "__main__":
-    test_config_loading()
-    test_get_provider()
-    test_extract_paragraphs()
-    test_extract_paragraphs_with_table()
-    test_extract_paragraphs_invalid_file()
-    test_chunk_paragraphs()
-    test_translate_chunk()
-    test_write_inline()
-    test_write_side_by_side()
-    print("PASS")
+    if len(sys.argv) > 1:
+        main()
+    else:
+        test_config_loading()
+        print("  test_config_loading PASS")
+        test_get_provider()
+        print("  test_get_provider PASS")
+        test_extract_paragraphs()
+        print("  test_extract_paragraphs PASS")
+        test_extract_paragraphs_with_table()
+        print("  test_extract_paragraphs_with_table PASS")
+        test_extract_paragraphs_invalid_file()
+        print("  test_extract_paragraphs_invalid_file PASS")
+        test_chunk_paragraphs()
+        print("  test_chunk_paragraphs PASS")
+        test_translate_chunk()
+        print("  test_translate_chunk PASS")
+        test_translate_chunk_retry()
+        print("  test_translate_chunk_retry PASS")
+        test_write_inline()
+        print("  test_write_inline PASS")
+        test_write_side_by_side()
+        print("  test_write_side_by_side PASS")
+        test_cli_parser()
+        print("  test_cli_parser PASS")
+        print("All tests PASS")
