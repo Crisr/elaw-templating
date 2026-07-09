@@ -275,7 +275,7 @@ def _detect_concurrency(provider):
     return best
 
 
-def translate_all(paragraphs, target_lang, provider, concurrency=0):
+def translate_all(paragraphs, target_lang, provider, concurrency=0, progress_callback=None):
     if concurrency < 1:
         concurrency = _detect_concurrency(provider)
     chunks = chunk_paragraphs(paragraphs)
@@ -294,7 +294,10 @@ def translate_all(paragraphs, target_lang, provider, concurrency=0):
         except Exception as e:
             return i, None, e
 
-    _show_progress(0, total)
+    if progress_callback:
+        progress_callback(0, total)
+    else:
+        _show_progress(0, total)
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [pool.submit(process, i, c) for i, c in enumerate(chunks)]
         for future in as_completed(futures):
@@ -306,7 +309,10 @@ def translate_all(paragraphs, target_lang, provider, concurrency=0):
                 else:
                     results[i] = translated
                 done += 1
-                _show_progress(done, total)
+                if progress_callback:
+                    progress_callback(done, total)
+                else:
+                    _show_progress(done, total)
     print()
     all_translated = []
     for r in results:
