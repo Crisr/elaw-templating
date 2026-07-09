@@ -1,9 +1,5 @@
 import threading
 import time
-import json
-import os
-import shutil
-from pathlib import Path
 
 import translate_docx
 from server import update_job, get_job, enforce_file_limit, config, UPLOAD_DIR
@@ -83,3 +79,17 @@ class TranslationWorker:
 
         except Exception as e:
             update_job(job_id, status="failed", error=str(e))
+
+
+def test_worker_enqueue_dequeue():
+    import server
+    job_id = server.create_job("ro", "inline", None, None)
+    from worker import TranslationWorker
+    w = TranslationWorker()
+    w.start()
+    w.enqueue(job_id)
+    import time
+    time.sleep(0.5)
+    job = server.get_job(job_id)
+    assert job["status"] == "failed"
+    w.stop()
