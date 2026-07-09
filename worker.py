@@ -1,8 +1,8 @@
+import copy
 import threading
-import time
 
 import translate_docx
-from server import update_job, get_job, enforce_file_limit, config, UPLOAD_DIR
+import db
 
 
 class TranslationWorker:
@@ -43,7 +43,7 @@ class TranslationWorker:
 
     def _process(self, job_id):
         try:
-            job = get_job(job_id)
+            job = db.get_job(job_id)
             if job is None:
                 return
 
@@ -53,43 +53,51 @@ class TranslationWorker:
             provider_name = job.get("provider")
             model_override = job.get("model")
 
+            config = db.get_config()
             provider = translate_docx.get_provider(config, provider_name)
             if model_override:
                 provider["model"] = model_override
 
-            update_job(job_id, status="running", progress=0)
+            db.update_job(job_id, status="running", progress=0)
 
             def progress_callback(done, total):
-                update_job(job_id, progress=done, total=total)
+                db.update_job(job_id, progress=done, total=total)
 
             paragraphs = translate_docx.extract_paragraphs(source_path)
-            originals = __import__("copy").deepcopy(paragraphs) if mode == "side-by-side" else None
+            originals = copy.deepcopy(paragraphs) if mode == "side-by-side" else None
             translated = translate_docx.translate_all(
                 paragraphs, lang, provider, progress_callback=progress_callback
             )
 
-            result_path = UPLOAD_DIR / f"{job_id}_result.docx"
+            result_path = db.UPLOAD_DIR / f"{job_id}_result.docx"
             if mode == "side-by-side":
                 translate_docx.write_side_by_side(source_path, originals, translated, str(result_path))
             else:
                 translate_docx.write_inline(source_path, translated, str(result_path))
 
-            update_job(job_id, status="done", progress=100, result_file=str(result_path))
-            enforce_file_limit()
+            db.update_job(job_id, status="done", progress=100, result_file=str(result_path))
+            db.enforce_file_limit()
 
         except Exception as e:
-            update_job(job_id, status="failed", error=str(e))
+            db.update_job(job_id, status="failed", error=str(e))
 
 
 def test_worker_enqueue_dequeue():
     import server
-    job_id = server.create_job("ro", "inline", None, None)
+    job_id = db.create_job("ro", "inline", None, None)
     from worker import TranslationWorker
     w = TranslationWorker()
+    done = threading.Event()
     w.start()
+
+    original_process = w._process
+    def tracked_process(jid):
+        original_process(jid)
+        done.set()
+    w._process = tracked_process
+
     w.enqueue(job_id)
-    import time
-    time.sleep(0.5)
-    job = server.get_job(job_id)
+    assert done.wait(timeout=5), "Worker did not process job within 5s"
+    job = db.get_job(job_id)
     assert job["status"] == "failed"
     w.stop()

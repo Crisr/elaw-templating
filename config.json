@@ -1,25 +1,15 @@
 {
-  "default_provider": "opencode-go",
+  "default_provider": "local",
   "providers": {
     "local": {
       "base_url": "http://192.168.1.186:8087/v1",
-      "model": "ornith-1.0-9b-mtp",
+      "model": "Carnice 9B",
       "api_key_env": null
     },
     "opencode-go": {
       "base_url": "https://opencode.ai/zen/go/v1",
       "model": "deepseek-v4-flash",
       "api_key_env": "OPENCODE_API_KEY"
-    },
-    "lm-studio": {
-      "base_url": "http://localhost:1234/v1",
-      "model": "qwen-2.5-14b-instruct",
-      "api_key_env": null
-    },
-    "openai": {
-      "base_url": "https://api.openai.com/v1",
-      "model": "gpt-4o-mini",
-      "api_key_env": "OPENAI_API_KEY"
     }
   }
 }

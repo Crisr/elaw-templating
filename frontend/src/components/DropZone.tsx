@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { messages } from '../messages'
 
 interface Props {
   file: File | null
@@ -9,6 +10,7 @@ interface Props {
 export default function DropZone({ file, onFile, disabled }: Props) {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { dropZone: msg } = messages
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -37,8 +39,8 @@ export default function DropZone({ file, onFile, disabled }: Props) {
       onClick={() => inputRef.current?.click()}
       className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
         dragging
-          ? 'border-indigo-500 bg-indigo-50'
-          : 'border-gray-300 hover:border-gray-400 bg-gray-50'
+          ? 'border-brand-500 bg-brand-50'
+          : 'border-brand-200 hover:border-brand-300 bg-brand-50/50'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <input
@@ -49,11 +51,11 @@ export default function DropZone({ file, onFile, disabled }: Props) {
         onChange={handleChange}
       />
       {file ? (
-        <p className="text-gray-700 font-medium">{file.name}</p>
+        <p className="text-brand-500 font-medium">{file.name}</p>
       ) : (
         <div>
-          <p className="text-gray-500">Drag & drop a .docx file here</p>
-          <p className="text-gray-400 text-sm mt-1">or click to browse</p>
+          <p className="text-brand-400">{msg.dragDrop}</p>
+          <p className="text-brand-300 text-sm mt-1">{msg.clickToBrowse}</p>
         </div>
       )}
     </div>

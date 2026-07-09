@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import DropZone from './components/DropZone'
 import OptionsForm from './components/OptionsForm'
 import ProgressBar from './components/ProgressBar'
 import DownloadLink from './components/DownloadLink'
+import { messages } from './messages'
 
 type Status = 'idle' | 'uploading' | 'translating' | 'done' | 'error'
 
@@ -17,6 +18,15 @@ function App() {
   const [progress, setProgress] = useState(0)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  const { app: msg } = messages
 
   const handleSubmit = useCallback(async () => {
     if (!file) return
@@ -32,17 +42,18 @@ function App() {
 
     try {
       const resp = await fetch('/api/translate', { method: 'POST', body: formData })
-      if (!resp.ok) throw new Error(`Upload failed: ${resp.statusText}`)
+      if (!resp.ok) throw new Error(`${msg.uploadFailed}: ${resp.statusText}`)
       const data = await resp.json()
       setJobId(data.job_id)
       setStatus('translating')
 
-      const poll = setInterval(async () => {
+      pollRef.current = setInterval(async () => {
         const sResp = await fetch(`/api/translate/${data.job_id}/status`)
         if (!sResp.ok) {
-          clearInterval(poll)
+          if (pollRef.current) clearInterval(pollRef.current)
+          pollRef.current = null
           setStatus('error')
-          setError('Failed to fetch status')
+          setError(msg.fetchStatusFailed)
           return
         }
         const sData = await sResp.json()
@@ -50,19 +61,21 @@ function App() {
         setTotal(sData.total)
 
         if (sData.status === 'done') {
-          clearInterval(poll)
+          if (pollRef.current) clearInterval(pollRef.current)
+          pollRef.current = null
           setStatus('done')
         } else if (sData.status === 'failed') {
-          clearInterval(poll)
+          if (pollRef.current) clearInterval(pollRef.current)
+          pollRef.current = null
           setStatus('error')
-          setError(sData.error || 'Translation failed')
+          setError(sData.error || msg.translationFailed)
         }
       }, 500)
     } catch (e) {
       setStatus('error')
-      setError(e instanceof Error ? e.message : 'Unknown error')
+      setError(e instanceof Error ? e.message : msg.errorOccurred)
     }
-  }, [file, lang, mode, providerName, modelName])
+  }, [file, lang, mode, providerName, modelName, msg])
 
   const handleReset = () => {
     setFile(null)
@@ -74,9 +87,12 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-start justify-center p-4 sm:p-8">
+    <div className="min-h-screen bg-brand-50 flex items-start justify-center p-4 sm:p-8">
       <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg p-6 sm:p-8 space-y-6">
-        <h1 className="text-2xl font-bold text-gray-800">DOCX Translator</h1>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="Emplawra" className="h-8 w-auto" />
+          <h1 className="text-2xl font-bold text-brand-500">{msg.title}</h1>
+        </div>
 
         {status === 'idle' || status === 'uploading' ? (
           <>
@@ -94,9 +110,9 @@ function App() {
             <button
               onClick={handleSubmit}
               disabled={!file || status === 'uploading'}
-              className="w-full py-3 px-4 bg-indigo-600 text-white font-medium rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+              className="w-full py-3 px-4 bg-brand-500 text-white font-medium rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-400 transition-colors"
             >
-              {status === 'uploading' ? 'Uploading...' : 'Convert'}
+              {status === 'uploading' ? msg.uploading : msg.convert}
             </button>
           </>
         ) : status === 'translating' ? (
@@ -106,13 +122,13 @@ function App() {
         ) : status === 'error' ? (
           <div className="space-y-4">
             <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
-              {error || 'An error occurred'}
+              {error || msg.errorOccurred}
             </div>
             <button
               onClick={handleReset}
-              className="w-full py-3 px-4 bg-gray-600 text-white font-medium rounded-xl hover:bg-gray-700 transition-colors"
+              className="w-full py-3 px-4 bg-brand-300 text-white font-medium rounded-xl hover:bg-brand-400 transition-colors"
             >
-              Try Again
+              {msg.tryAgain}
             </button>
           </div>
         ) : null}

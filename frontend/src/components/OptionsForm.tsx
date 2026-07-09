@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { messages } from '../messages'
 
 interface Props {
   lang: string
@@ -14,6 +15,7 @@ interface Props {
 interface Provider {
   name: string
   model: string
+  models?: string[]
 }
 
 export default function OptionsForm({
@@ -22,6 +24,7 @@ export default function OptionsForm({
 }: Props) {
   const [providers, setProviders] = useState<Provider[]>([])
   const [defaultProvider, setDefaultProvider] = useState('')
+  const { optionsForm: msg } = messages
 
   useEffect(() => {
     fetch('/api/providers')
@@ -33,40 +36,41 @@ export default function OptionsForm({
           onProviderChange(data.default_provider)
         }
       })
-      .catch(() => {})
+      .catch((err) => console.error('Failed to load providers:', err))
   }, [])
 
   const selectedProvider = providers.find((p) => p.name === (providerName || defaultProvider))
+  const availableModels = selectedProvider?.models
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
+          <label className="block text-sm font-medium text-brand-500 mb-1">{msg.language}</label>
           <select
             value={lang}
             onChange={(e) => onLangChange(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500"
           >
-            <option value="ro">Romanian</option>
-            <option value="en">English</option>
+            <option value="ro">{msg.romanian}</option>
+            <option value="en">{msg.english}</option>
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+          <label className="block text-sm font-medium text-brand-500 mb-1">{msg.mode}</label>
           <select
             value={mode}
             onChange={(e) => onModeChange(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500"
           >
-            <option value="inline">Inline</option>
-            <option value="side-by-side">Side-by-Side</option>
+            <option value="inline">{msg.inline}</option>
+            <option value="side-by-side">{msg.sideBySide}</option>
           </select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+          <label className="block text-sm font-medium text-brand-500 mb-1">{msg.provider}</label>
           <select
             value={providerName || defaultProvider}
             onChange={(e) => {
@@ -74,7 +78,7 @@ export default function OptionsForm({
               const p = providers.find((pr) => pr.name === e.target.value)
               if (p) onModelChange(p.model)
             }}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500"
           >
             {providers.map((p) => (
               <option key={p.name} value={p.name}>{p.name}</option>
@@ -82,14 +86,26 @@ export default function OptionsForm({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
-          <input
-            type="text"
-            value={modelName || selectedProvider?.model || ''}
-            onChange={(e) => onModelChange(e.target.value)}
-            placeholder={selectedProvider?.model || 'Model name'}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-          />
+          <label className="block text-sm font-medium text-brand-500 mb-1">{msg.model}</label>
+          {availableModels ? (
+            <select
+              value={modelName || selectedProvider?.model || ''}
+              onChange={(e) => onModelChange(e.target.value)}
+              className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500"
+            >
+              {availableModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={modelName || selectedProvider?.model || ''}
+              onChange={(e) => onModelChange(e.target.value)}
+              placeholder={selectedProvider?.model || msg.modelName}
+              className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500 placeholder-brand-300"
+            />
+          )}
         </div>
       </div>
     </div>

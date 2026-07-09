@@ -17,6 +17,12 @@ MESSAGES = {
     "saved": "Translated document saved to: {output}",
     "test_pass": "  {name} PASS",
     "all_pass": "All tests PASS",
+    "err_invalid_lang": "lang must be 'ro' or 'en'",
+    "err_invalid_mode": "mode must be 'inline' or 'side-by-side'",
+    "err_not_docx": "File is not a valid DOCX (missing ZIP header)",
+    "err_job_not_found": "Job not found",
+    "err_not_done": "Translation not yet complete",
+    "err_result_cleaned": "Result file has been cleaned up",
     "llm_system_prompt": (
         "You are a legal document translator. Translate the following paragraphs "
         "to {lang}. Preserve all paragraph IDs exactly ([P0], [P1], ...). "

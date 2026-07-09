@@ -1,25 +1,29 @@
+import { messages } from '../messages'
+
 interface Props {
   jobId: string
   onReset: () => void
 }
 
 export default function DownloadLink({ jobId, onReset }: Props) {
+  const { downloadLink: msg } = messages
+
   return (
     <div className="text-center space-y-4">
       <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-4">
-        Translation complete!
+        {msg.complete}
       </div>
       <a
         href={`/api/translate/${jobId}/download`}
-        className="inline-block w-full py-3 px-4 bg-indigo-600 text-white font-medium rounded-xl text-center hover:bg-indigo-700 transition-colors"
+        className="inline-block w-full py-3 px-4 bg-brand-500 text-white font-medium rounded-xl text-center hover:bg-brand-400 transition-colors"
       >
-        Download Translated File
+        {msg.download}
       </a>
       <button
         onClick={onReset}
-        className="w-full py-2 px-4 text-gray-600 hover:text-gray-800 text-sm transition-colors"
+        className="w-full py-2 px-4 text-brand-300 hover:text-brand-500 text-sm transition-colors"
       >
-        Translate Another
+        {msg.translateAnother}
       </button>
     </div>
   )

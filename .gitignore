@@ -5,3 +5,7 @@ secrets.json
 venv/
 .venv/
 *.docx
+.DS_Store
+jobs.db
+uploads/
+*.tsbuildinfo
