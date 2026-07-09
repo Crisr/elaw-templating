@@ -4,7 +4,7 @@ import json
 import sqlite3
 import threading
 import time
-import shutil
+
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -66,7 +66,15 @@ def create_job(lang, mode, provider, model):
     db.close()
     return job_id
 
+VALID_COLUMNS = frozenset({
+    "status", "progress", "total", "source_file", "result_file",
+    "error", "language", "mode", "provider", "model",
+})
+
 def update_job(job_id, **kwargs):
+    bad = set(kwargs) - VALID_COLUMNS
+    if bad:
+        raise ValueError(f"Invalid columns: {', '.join(sorted(bad))}")
     sets = ", ".join(f"{k} = ?" for k in kwargs)
     vals = list(kwargs.values()) + [job_id]
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
