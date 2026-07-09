@@ -14,7 +14,6 @@ from fastapi.staticfiles import StaticFiles
 from typing import Optional
 
 import translate_docx
-from worker import TranslationWorker
 
 UPLOAD_DIR = Path("uploads")
 DB_PATH = "jobs.db"
@@ -76,10 +75,9 @@ def update_job(job_id, **kwargs):
     if bad:
         raise ValueError(f"Invalid columns: {', '.join(sorted(bad))}")
     sets = ", ".join(f"{k} = ?" for k in kwargs)
-    vals = list(kwargs.values()) + [job_id]
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     db = _get_db()
-    db.execute(f"UPDATE jobs SET {sets}, updated_at = ? WHERE id = ?", vals + [now])
+    db.execute(f"UPDATE jobs SET {sets}, updated_at = ? WHERE id = ?", list(kwargs.values()) + [now, job_id])
     db.commit()
     db.close()
 
@@ -105,8 +103,9 @@ def enforce_file_limit():
             f.unlink()
             pairs -= 1
 
-# --- Config ---
+# --- Bootstrap ---
 
+_init_db()
 config = translate_docx.load_config()
 
 # --- Worker ---
@@ -116,7 +115,7 @@ worker = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global worker
-    _init_db()
+    from worker import TranslationWorker
     worker = TranslationWorker()
     worker.start()
     yield
