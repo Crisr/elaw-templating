@@ -1116,7 +1116,7 @@ def test_pair_by_position():
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=_["cli_desc"])
     parser.add_argument("input", help=_["cli_input_help"])
-    parser.add_argument("--lang", "-l", choices=["ro", "en"],
+    parser.add_argument("--lang", "-l", choices=["ro", "en", "none"],
                         help=_["cli_lang_help"])
     parser.add_argument("--mode", "-m", choices=["inline", "side-by-side"],
                         default="inline", help=_["cli_mode_help"])
@@ -1174,7 +1174,12 @@ def main():
         output = f"{stem}_{timestamp}.docx"
     paragraphs = extract_paragraphs(args.input)
     originals = copy.deepcopy(paragraphs) if args.mode == "side-by-side" else None
-    translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider, args.concurrency)
+    if args.lang == "none":
+        if args.mode != "side-by-side":
+            _PARSER.error("--lang none only works with --mode side-by-side")
+        translated = copy.deepcopy(paragraphs)
+    else:
+        translated = translate_all(paragraphs, "Romanian" if args.lang == "ro" else "English", provider, args.concurrency)
     if args.mode == "side-by-side":
         write_side_by_side(args.input, originals, translated, output)
     else:

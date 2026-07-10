@@ -18,6 +18,7 @@ export interface Messages {
     translateTo: string
     romanian: string
     english: string
+    none: string
     mode: string
     inline: string
     sideBySide: string
@@ -55,6 +56,7 @@ export const en: Messages = {
     translateTo: 'Translate to',
     romanian: 'Romanian',
     english: 'English',
+    none: 'None (same language)',
     mode: 'Mode',
     inline: 'Inline',
     sideBySide: 'Side-by-Side',
@@ -92,6 +94,7 @@ export const ro: Messages = {
     translateTo: 'Traduceți în',
     romanian: 'Română',
     english: 'Engleză',
+    none: 'Niciuna (aceeași limbă)',
     mode: 'Mod',
     inline: 'Direct',
     sideBySide: 'Față în față',

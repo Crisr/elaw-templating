@@ -60,6 +60,7 @@ export default function OptionsForm({
           >
             <option value="ro">{msg.romanian}</option>
             <option value="en">{msg.english}</option>
+            <option value="none">{msg.none}</option>
           </select>
         </div>
         <div>

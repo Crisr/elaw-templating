@@ -48,15 +48,12 @@ class TranslationWorker:
                 return
 
             source_path = job["source_file"]
-            lang = "Romanian" if job["language"] == "ro" else "English"
+            lang_code = job["language"]
             mode = job.get("mode", "inline")
             provider_name = job.get("provider")
             model_override = job.get("model")
 
             config = db.get_config()
-            provider = translate_docx.get_provider(config, provider_name)
-            if model_override:
-                provider["model"] = model_override
 
             db.update_job(job_id, status="running", progress=0)
 
@@ -75,9 +72,17 @@ class TranslationWorker:
 
             paragraphs = translate_docx.extract_paragraphs(source_path)
             originals = copy.deepcopy(paragraphs) if mode == "side-by-side" else None
-            translated = translate_docx.translate_all(
-                paragraphs, lang, provider, progress_callback=progress_callback
-            )
+
+            if lang_code == "none":
+                translated = copy.deepcopy(paragraphs)
+            else:
+                lang = "Romanian" if lang_code == "ro" else "English"
+                provider = translate_docx.get_provider(config, provider_name)
+                if model_override:
+                    provider["model"] = model_override
+                translated = translate_docx.translate_all(
+                    paragraphs, lang, provider, progress_callback=progress_callback
+                )
 
             result_path = db.UPLOAD_DIR / f"{job_id}_result.docx"
             if mode == "side-by-side":

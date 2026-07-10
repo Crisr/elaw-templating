@@ -1,7 +1,7 @@
 MESSAGES = {
     "cli_desc": "Translate DOCX documents using LLM",
     "cli_input_help": "Path to input DOCX file",
-    "cli_lang_help": "Target language (ro=Romanian, en=English)",
+    "cli_lang_help": "Target language (ro=Romanian, en=English, none=skip translation)",
     "cli_mode_help": "Output layout mode",
     "cli_output_help": "Output path (auto-generated if omitted)",
     "cli_provider_help": "Provider key from config.json",
@@ -17,7 +17,7 @@ MESSAGES = {
     "saved": "Translated document saved to: {output}",
     "test_pass": "  {name} PASS",
     "all_pass": "All tests PASS",
-    "err_invalid_lang": "lang must be 'ro' or 'en'",
+    "err_invalid_lang": "lang must be 'ro', 'en', or 'none'",
     "err_invalid_mode": "mode must be 'inline' or 'side-by-side'",
     "err_not_docx": "File is not a valid DOCX (missing ZIP header)",
     "err_job_not_found": "Job not found",

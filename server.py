@@ -66,7 +66,7 @@ async def api_translate(
     if transform2cell:
         job_id = db.create_job("", "transform2cell", provider, model)
     else:
-        if lang not in ("ro", "en"):
+        if lang not in ("ro", "en", "none"):
             raise HTTPException(400, msg.MESSAGES["err_invalid_lang"])
         if mode not in ("inline", "side-by-side"):
             raise HTTPException(400, msg.MESSAGES["err_invalid_mode"])
