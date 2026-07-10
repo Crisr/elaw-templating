@@ -92,6 +92,37 @@ def _cell_coords(para):
     return cell_row, cell_col
 
 
+def _create_2column_test_docx(path):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx import Document
+
+    doc = Document()
+    sect_pr = doc.sections[0]._sectPr
+    existing = sect_pr.find(qn('w:cols'))
+    if existing is not None:
+        sect_pr.remove(existing)
+    cols = OxmlElement('w:cols')
+    cols.set(qn('w:num'), '2')
+    cols.set(qn('w:space'), '720')
+    sect_pr.append(cols)
+
+    doc.add_paragraph("First original paragraph.")
+    doc.add_paragraph("Second original paragraph.")
+    doc.add_paragraph("Third original paragraph.")
+
+    p_break = doc.add_paragraph()
+    r_break = p_break.add_run()
+    br = OxmlElement('w:br')
+    br.set(qn('w:type'), 'column')
+    r_break._element.append(br)
+
+    doc.add_paragraph("Primul paragraf original.")
+    doc.add_paragraph("Al doilea paragraf original.")
+    doc.add_paragraph("Al treilea paragraf original.")
+    doc.save(path)
+
+
 def extract_paragraphs(path):
     if not os.path.exists(path):
         raise FileNotFoundError(_["file_not_found"].format(path=path))
@@ -346,6 +377,41 @@ def write_inline(original_path, translated_paragraphs, output_path):
                                 run.text = tp["runs"][j]["text"]
                     pid += 1
     doc.save(output_path)
+
+
+def _has_2column_layout(doc):
+    for section in doc.sections:
+        sect_pr = section._sectPr
+        if sect_pr is not None:
+            for cols in sect_pr.findall(f'{NS_W}cols'):
+                if cols is not None:
+                    num = cols.get(f'{NS_W}num')
+                    if num and int(num) == 2:
+                        return True
+    return False
+
+
+def _find_column_break(doc):
+    for i, para in enumerate(doc.paragraphs):
+        for br in para._element.findall(f'.//{NS_W}br'):
+            if br.get(f'{NS_W}type') == 'column':
+                return i
+    return None
+
+
+def _heuristic_column_split(doc):
+    return len(doc.paragraphs) // 2
+
+
+def _pair_by_position(paras, split_idx):
+    col1 = list(paras[:split_idx])
+    col2 = list(paras[split_idx:])
+    pairs = []
+    for i in range(max(len(col1), len(col2))):
+        p1 = col1[i] if i < len(col1) else None
+        p2 = col2[i] if i < len(col2) else None
+        pairs.append((p1, p2))
+    return pairs
 
 
 def test_config_loading():
@@ -723,6 +789,80 @@ def test_parse_translated_response_protects_placeholders():
     assert "{{amount}}" in result["P1"]
 
 
+def test_has_2column_layout():
+    import tempfile, os
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    doc = Document()
+    path = os.path.join(tempfile.mkdtemp(), "test.docx")
+    doc.save(path)
+    assert not _has_2column_layout(Document(path))
+    doc2 = Document()
+    sect_pr = doc2.sections[0]._sectPr
+    cols = OxmlElement('w:cols')
+    cols.set(qn('w:num'), '2')
+    cols.set(qn('w:space'), '720')
+    sect_pr.append(cols)
+    path2 = os.path.join(tempfile.mkdtemp(), "test2.docx")
+    doc2.save(path2)
+    assert _has_2column_layout(Document(path2))
+    os.unlink(path); os.unlink(path2)
+
+
+def test_find_column_break():
+    import tempfile, os
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    path = os.path.join(tempfile.mkdtemp(), "test.docx")
+    doc = Document()
+    doc.add_paragraph("Before break")
+    p = doc.add_paragraph()
+    r = p.add_run()
+    br = OxmlElement('w:br')
+    br.set(qn('w:type'), 'column')
+    r._element.append(br)
+    doc.add_paragraph("After break")
+    doc.save(path)
+    idx = _find_column_break(Document(path))
+    assert idx == 1, f"Expected 1, got {idx}"
+    doc2 = Document()
+    doc2.add_paragraph("No break")
+    doc2.add_paragraph("No break either")
+    path2 = os.path.join(tempfile.mkdtemp(), "test2.docx")
+    doc2.save(path2)
+    assert _find_column_break(Document(path2)) is None
+    os.unlink(path); os.unlink(path2)
+
+
+def test_heuristic_column_split():
+    from docx import Document
+    doc = Document()
+    for _ in range(10):
+        doc.add_paragraph("x")
+    assert _heuristic_column_split(doc) == 5
+    doc2 = Document()
+    for _ in range(7):
+        doc2.add_paragraph("x")
+    assert _heuristic_column_split(doc2) == 3
+
+
+def test_pair_by_position():
+    paras = [f"P{i}" for i in range(6)]
+    pairs = _pair_by_position(paras, 3)
+    assert len(pairs) == 3
+    assert pairs[0] == ("P0", "P3")
+    assert pairs[1] == ("P1", "P4")
+    assert pairs[2] == ("P2", "P5")
+    paras2 = [f"P{i}" for i in range(5)]
+    pairs2 = _pair_by_position(paras2, 2)
+    assert len(pairs2) == 3
+    assert pairs2[0] == ("P0", "P2")
+    assert pairs2[1] == ("P1", "P3")
+    assert pairs2[2] == (None, "P4")
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=_["cli_desc"])
     parser.add_argument("input", help=_["cli_input_help"])
@@ -784,6 +924,10 @@ if __name__ == "__main__":
             ("test_restore_placeholders", test_restore_placeholders),
             ("test_restore_missing_placeholder", test_restore_missing_placeholder),
             ("test_parse_translated_response_protects_placeholders", test_parse_translated_response_protects_placeholders),
+            ("test_has_2column_layout", test_has_2column_layout),
+            ("test_find_column_break", test_find_column_break),
+            ("test_heuristic_column_split", test_heuristic_column_split),
+            ("test_pair_by_position", test_pair_by_position),
         ]
         for name, fn in tests:
             fn()
