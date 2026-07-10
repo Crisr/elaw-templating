@@ -3,16 +3,18 @@ import DropZone from './components/DropZone'
 import OptionsForm from './components/OptionsForm'
 import ProgressBar from './components/ProgressBar'
 import DownloadLink from './components/DownloadLink'
-import { messages } from './messages'
+import { useLocale } from './LocaleContext'
 
 type Status = 'idle' | 'uploading' | 'translating' | 'done' | 'error'
 
 function App() {
+  const { messages, locale, setLocale } = useLocale()
   const [file, setFile] = useState<File | null>(null)
   const [lang, setLang] = useState('ro')
   const [mode, setMode] = useState('inline')
   const [providerName, setProviderName] = useState('')
   const [modelName, setModelName] = useState('')
+  const [isTwoColumn, setIsTwoColumn] = useState(false)
   const [status, setStatus] = useState<Status>('idle')
   const [jobId, setJobId] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
@@ -26,6 +28,11 @@ function App() {
     }
   }, [])
 
+  // Reset isTwoColumn when file changes
+  useEffect(() => {
+    setIsTwoColumn(false)
+  }, [file])
+
   const { app: msg } = messages
 
   const handleSubmit = useCallback(async () => {
@@ -35,8 +42,12 @@ function App() {
 
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('lang', lang)
-    formData.append('mode', mode)
+    if (isTwoColumn) {
+      formData.append('transform2cell', 'true')
+    } else {
+      formData.append('lang', lang)
+      formData.append('mode', mode)
+    }
     if (providerName) formData.append('provider', providerName)
     if (modelName) formData.append('model', modelName)
 
@@ -75,7 +86,7 @@ function App() {
       setStatus('error')
       setError(e instanceof Error ? e.message : msg.errorOccurred)
     }
-  }, [file, lang, mode, providerName, modelName, msg])
+  }, [file, lang, mode, providerName, modelName, isTwoColumn, msg])
 
   const handleReset = () => {
     setFile(null)
@@ -89,14 +100,24 @@ function App() {
   return (
     <div className="min-h-screen bg-brand-50 flex items-start justify-center p-4 sm:p-8">
       <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg p-6 sm:p-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Emplawra" className="h-8 w-auto" />
-          <h1 className="text-2xl font-bold text-brand-500">{msg.title}</h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="Emplawra" className="h-8 w-auto" />
+            <h1 className="text-2xl font-bold text-brand-500">{msg.title}</h1>
+          </div>
+          <button
+            onClick={() => setLocale(locale === 'en' ? 'ro' : 'en')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 text-sm font-medium text-brand-500 hover:bg-brand-100 transition-colors"
+          >
+            <span className={locale === 'en' ? 'text-brand-500' : 'text-brand-300'}>EN</span>
+            <span className="text-brand-200">/</span>
+            <span className={locale === 'ro' ? 'text-brand-500' : 'text-brand-300'}>RO</span>
+          </button>
         </div>
 
         {status === 'idle' || status === 'uploading' ? (
           <>
-            <DropZone file={file} onFile={setFile} disabled={status === 'uploading'} />
+            <DropZone file={file} onFile={setFile} disabled={status === 'uploading'} onTwoColumnDetected={setIsTwoColumn} />
             <OptionsForm
               lang={lang}
               mode={mode}
@@ -106,13 +127,14 @@ function App() {
               onModeChange={setMode}
               onProviderChange={setProviderName}
               onModelChange={setModelName}
+              disabled={isTwoColumn}
             />
             <button
               onClick={handleSubmit}
               disabled={!file || status === 'uploading'}
               className="w-full py-3 px-4 bg-brand-500 text-white font-medium rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-400 transition-colors"
             >
-              {status === 'uploading' ? msg.uploading : msg.convert}
+              {status === 'uploading' ? msg.uploading : (isTwoColumn ? msg.convertToCellColumns : msg.convert)}
             </button>
           </>
         ) : status === 'translating' ? (

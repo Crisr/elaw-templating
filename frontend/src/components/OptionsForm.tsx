@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { messages } from '../messages'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   lang: string
@@ -10,6 +10,7 @@ interface Props {
   onModeChange: (v: string) => void
   onProviderChange: (v: string) => void
   onModelChange: (v: string) => void
+  disabled?: boolean
 }
 
 interface Provider {
@@ -21,10 +22,12 @@ interface Provider {
 export default function OptionsForm({
   lang, mode, providerName, modelName,
   onLangChange, onModeChange, onProviderChange, onModelChange,
+  disabled = false,
 }: Props) {
   const [providers, setProviders] = useState<Provider[]>([])
   const [defaultProvider, setDefaultProvider] = useState('')
-  const { optionsForm: msg } = messages
+  const { messages } = useLocale()
+  const msg = messages.optionsForm
 
   useEffect(() => {
     fetch('/api/providers')
@@ -46,11 +49,14 @@ export default function OptionsForm({
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-brand-500 mb-1">{msg.language}</label>
+          <label className="block text-sm font-medium text-brand-500 mb-1">{msg.translateTo}</label>
           <select
             value={lang}
             onChange={(e) => onLangChange(e.target.value)}
-            className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500"
+            disabled={disabled}
+            className={`w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500 ${
+              disabled ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
             <option value="ro">{msg.romanian}</option>
             <option value="en">{msg.english}</option>
@@ -61,7 +67,10 @@ export default function OptionsForm({
           <select
             value={mode}
             onChange={(e) => onModeChange(e.target.value)}
-            className="w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500"
+            disabled={disabled}
+            className={`w-full border border-brand-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-300 text-brand-500 ${
+              disabled ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
             <option value="inline">{msg.inline}</option>
             <option value="side-by-side">{msg.sideBySide}</option>

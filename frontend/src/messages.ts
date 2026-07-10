@@ -2,6 +2,7 @@ export interface Messages {
   app: {
     title: string
     convert: string
+    convertToCellColumns: string
     uploading: string
     tryAgain: string
     errorOccurred: string
@@ -14,7 +15,7 @@ export interface Messages {
     clickToBrowse: string
   }
   optionsForm: {
-    language: string
+    translateTo: string
     romanian: string
     english: string
     mode: string
@@ -38,6 +39,7 @@ export const en: Messages = {
   app: {
     title: 'DOCX Translator',
     convert: 'Convert',
+    convertToCellColumns: 'Convert to cell columns',
     uploading: 'Uploading...',
     tryAgain: 'Try Again',
     errorOccurred: 'An error occurred',
@@ -50,7 +52,7 @@ export const en: Messages = {
     clickToBrowse: 'or click to browse',
   },
   optionsForm: {
-    language: 'Language',
+    translateTo: 'Translate to',
     romanian: 'Romanian',
     english: 'English',
     mode: 'Mode',
@@ -74,6 +76,7 @@ export const ro: Messages = {
   app: {
     title: 'Traducător DOCX',
     convert: 'Convertește',
+    convertToCellColumns: 'Convertește în coloane',
     uploading: 'Se încarcă...',
     tryAgain: 'Încercați din nou',
     errorOccurred: 'A apărut o eroare',
@@ -86,7 +89,7 @@ export const ro: Messages = {
     clickToBrowse: 'sau faceți clic pentru a răsfoi',
   },
   optionsForm: {
-    language: 'Limba',
+    translateTo: 'Traduceți în',
     romanian: 'Română',
     english: 'Engleză',
     mode: 'Mod',
@@ -106,4 +109,8 @@ export const ro: Messages = {
   },
 }
 
-export const messages = en
+export type Locale = 'en' | 'ro'
+
+export function getMessages(locale: Locale): Messages {
+  return locale === 'ro' ? ro : en
+}
