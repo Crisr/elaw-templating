@@ -1,7 +1,7 @@
 import copy
 import threading
 
-import translate_docx
+import emplawra_docx_engine
 import db
 
 
@@ -58,11 +58,11 @@ class TranslationWorker:
             db.update_job(job_id, status="running", progress=0)
 
             if mode == "transform2cell":
-                p = translate_docx.get_provider(config, provider_name) if provider_name else None
+                p = emplawra_docx_engine.get_provider(config, provider_name) if provider_name else None
                 if model_override and p:
                     p["model"] = model_override
                 result_path = db.UPLOAD_DIR / f"{job_id}_result.docx"
-                translate_docx.transform2cell(source_path, str(result_path), p)
+                emplawra_docx_engine.transform2cell(source_path, str(result_path), p)
                 db.update_job(job_id, status="done", progress=100, result_file=str(result_path))
                 db.enforce_file_limit()
                 return
@@ -70,25 +70,25 @@ class TranslationWorker:
             def progress_callback(done, total):
                 db.update_job(job_id, progress=done, total=total)
 
-            paragraphs = translate_docx.extract_paragraphs(source_path)
+            paragraphs = emplawra_docx_engine.extract_paragraphs(source_path)
             originals = copy.deepcopy(paragraphs) if mode == "side-by-side" else None
 
             if lang_code == "none":
                 translated = copy.deepcopy(paragraphs)
             else:
                 lang = "Romanian" if lang_code == "ro" else "English"
-                provider = translate_docx.get_provider(config, provider_name)
+                provider = emplawra_docx_engine.get_provider(config, provider_name)
                 if model_override:
                     provider["model"] = model_override
-                translated = translate_docx.translate_all(
+                translated = emplawra_docx_engine.translate_all(
                     paragraphs, lang, provider, progress_callback=progress_callback
                 )
 
             result_path = db.UPLOAD_DIR / f"{job_id}_result.docx"
             if mode == "side-by-side":
-                translate_docx.write_side_by_side(source_path, originals, translated, str(result_path))
+                emplawra_docx_engine.write_side_by_side(source_path, originals, translated, str(result_path))
             else:
-                translate_docx.write_inline(source_path, translated, str(result_path))
+                emplawra_docx_engine.write_inline(source_path, translated, str(result_path))
 
             db.update_job(job_id, status="done", progress=100, result_file=str(result_path))
             db.enforce_file_limit()
@@ -98,7 +98,6 @@ class TranslationWorker:
 
 
 def test_worker_enqueue_dequeue():
-    import server
     job_id = db.create_job("ro", "inline", None, None)
     from worker import TranslationWorker
     w = TranslationWorker()

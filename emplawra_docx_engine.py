@@ -16,9 +16,11 @@ from messages import MESSAGES as _
 _PARSER = None
 
 
+
 def load_config(path="config.json"):
     with open(path) as f:
         return json.load(f)
+
 
 
 def get_provider(config, name=None):
@@ -52,6 +54,7 @@ def get_provider(config, name=None):
 NS_W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
 
 
+
 def _extract_numpr(para):
     pPr = para._element.find(f'{NS_W}pPr')
     if pPr is not None:
@@ -64,6 +67,7 @@ def _extract_numpr(para):
                 'numId': numId.get(f'{NS_W}val') if numId is not None else None,
             }
     return None
+
 
 
 def _extract_runs(para):
@@ -81,6 +85,7 @@ def _extract_runs(para):
     return runs_data
 
 
+
 def _cell_coords(para):
     if not para._element.getparent().tag.endswith("tc"):
         return None, None
@@ -92,6 +97,7 @@ def _cell_coords(para):
     trs = [r for r in tbl if r.tag.endswith("tr")]
     cell_row = trs.index(tr)
     return cell_row, cell_col
+
 
 
 def extract_paragraphs(path):
@@ -132,11 +138,13 @@ def extract_paragraphs(path):
     return paragraphs
 
 
+
 def chunk_paragraphs(paragraphs, chunk_size=10):
     chunks = []
     for i in range(0, len(paragraphs), chunk_size):
         chunks.append(paragraphs[i:i + chunk_size])
     return chunks
+
 
 
 def _build_chunk_text(chunk):
@@ -149,6 +157,7 @@ def _build_chunk_text(chunk):
     return "\n".join(lines)
 
 
+
 def restore_placeholders(translated_text, original_text):
     placeholder_pattern = r'\{\{[^}]+\}\}'
     placeholders = re.findall(placeholder_pattern, original_text)
@@ -159,6 +168,7 @@ def restore_placeholders(translated_text, original_text):
             insert_pos = int(ratio * len(translated_text))
             translated_text = translated_text[:insert_pos] + ph + translated_text[insert_pos:]
     return translated_text
+
 
 
 def _parse_translated_response(response_text, chunk_ids, original_text=None):
@@ -191,6 +201,7 @@ def _parse_translated_response(response_text, chunk_ids, original_text=None):
             if pid in original_lines:
                 results[pid] = restore_placeholders(results[pid], original_lines[pid])
     return results
+
 
 
 def translate_chunk(chunk, target_lang, provider):
@@ -237,6 +248,7 @@ def translate_chunk(chunk, target_lang, provider):
     raise last_error
 
 
+
 def _show_progress(done, total):
     if total == 0:
         return
@@ -247,7 +259,9 @@ def _show_progress(done, total):
     print("\r" + _["progress"].format(bar=bar, pct=pct * 100, done=done, total=total), end="", flush=True)
 
 
+
 _CONCURRENCY_CACHE = None
+
 
 
 def _detect_concurrency(provider):
@@ -260,6 +274,7 @@ def _detect_concurrency(provider):
     best = 1
     for level in [2, 4, 6, 8, 12, 16]:
         print("\r" + _["detecting_concurrency"].format(n=level), end="", flush=True)
+
         def try_request(_):
             try:
                 client.chat.completions.create(model=provider["model"], messages=probe, temperature=0, max_tokens=1)  # type: ignore
@@ -273,8 +288,10 @@ def _detect_concurrency(provider):
         else:
             break
     print("\r" + " " * 50 + "\r", end="", flush=True)
+
     _CONCURRENCY_CACHE = best
     return best
+
 
 
 def translate_all(paragraphs, target_lang, provider, concurrency=0, progress_callback=None):
@@ -288,6 +305,7 @@ def translate_all(paragraphs, target_lang, provider, concurrency=0, progress_cal
     failed_indices = []
     lock = threading.Lock()
     done = 0
+
 
     def process(i, chunk):
         try:
@@ -325,6 +343,7 @@ def translate_all(paragraphs, target_lang, provider, concurrency=0, progress_cal
     return all_translated
 
 
+
 def write_inline(original_path, translated_paragraphs, output_path):
     doc = DocxDocument(original_path)
     trans_by_id = {p["id"]: p for p in translated_paragraphs}
@@ -350,6 +369,7 @@ def write_inline(original_path, translated_paragraphs, output_path):
     doc.save(output_path)
 
 
+
 def _has_2column_layout(doc):
     for section in doc.sections:
         sect_pr = section._sectPr
@@ -361,12 +381,15 @@ def _has_2column_layout(doc):
     return False
 
 
+
 def _has_2column_table(doc):
     return len(doc.tables) >= 1 and len(doc.tables[0].columns) == 2
 
 
+
 def _is_2column_format(doc):
     return _has_2column_layout(doc) or _has_2column_table(doc)
+
 
 
 def _extract_pairs_from_table(doc):
@@ -386,6 +409,7 @@ def _extract_pairs_from_table(doc):
     return pairs
 
 
+
 def _find_column_break(doc):
     for i, para in enumerate(doc.paragraphs):
         for br in para._element.findall(f'.//{NS_W}br'):
@@ -394,8 +418,10 @@ def _find_column_break(doc):
     return None
 
 
+
 def _heuristic_column_split(doc):
     return len(doc.paragraphs) // 2
+
 
 
 def _pair_by_position(paras, split_idx):
@@ -409,12 +435,14 @@ def _pair_by_position(paras, split_idx):
     return pairs
 
 
+
 def _build_para_dict(para):
     return {
         "runs": _extract_runs(para),
         "alignment": str(int(para.alignment)) if para.alignment is not None else None,
         "numpr": _extract_numpr(para),
     }
+
 
 
 def _llm_verify_pairs(col1_dicts, col2_dicts, pairs, provider):
@@ -457,6 +485,7 @@ def _llm_verify_pairs(col1_dicts, col2_dicts, pairs, provider):
         return None
 
 
+
 def _llm_full_column_matching(all_dicts, provider):
     if provider is None:
         return None
@@ -495,6 +524,7 @@ def _llm_full_column_matching(all_dicts, provider):
     except Exception as e:
         print(f"Warning: full AI column matching failed ({e})", file=sys.stderr)
         return None
+
 
 
 def transform2cell(input_path, output_path, provider=None):
@@ -540,148 +570,6 @@ def transform2cell(input_path, output_path, provider=None):
     _write_2cell_table(input_path, pairs, output_path)
 
 
-def test_config_loading():
-    import json
-    import tempfile
-    import os
-    cfg = {
-        "default_provider": "test",
-        "providers": {
-            "test": {
-                "base_url": "http://test/v1",
-                "model": "test-model",
-                "api_key_env": None
-            }
-        }
-    }
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(cfg, f)
-        fname = f.name
-    try:
-        result = load_config(fname)
-        assert result == cfg
-    finally:
-        os.unlink(fname)
-
-
-def test_get_provider():
-    cfg = {
-        "default_provider": "test",
-        "providers": {
-            "test": {
-                "base_url": "http://test/v1",
-                "model": "test-model",
-                "api_key_env": None
-            }
-        }
-    }
-    provider = get_provider(cfg, "test")
-    assert provider["base_url"] == "http://test/v1"
-    assert provider["model"] == "test-model"
-
-
-def test_extract_paragraphs():
-    from docx import Document
-    import tempfile
-    import os
-    doc = Document()
-    doc.add_paragraph("Hello world")
-    p = doc.add_paragraph()
-    p.add_run("Bold").bold = True
-    p.add_run(" Normal")
-    path = os.path.join(tempfile.mkdtemp(), "test.docx")
-    doc.save(path)
-    paragraphs = extract_paragraphs(path)
-    assert len(paragraphs) == 2
-    p0 = paragraphs[0]
-    assert p0["id"] == "P0"
-    assert not p0["in_table"]
-    assert p0["cell_row"] is None
-    assert p0["cell_col"] is None
-    assert p0["alignment"] is None or p0["alignment"] is not None
-    assert p0["runs"][0]["text"] == "Hello world"
-    assert p0["runs"][0]["italic"] is None
-    assert p0["runs"][0]["underline"] is None
-    p1 = paragraphs[1]
-    assert p1["runs"][0]["text"] == "Bold"
-    assert p1["runs"][0]["bold"]
-    assert p1["runs"][1]["text"] == " Normal"
-    os.unlink(path)
-
-
-def test_extract_paragraphs_with_table():
-    from docx import Document
-    import tempfile
-    import os
-    doc = Document()
-    table = doc.add_table(rows=2, cols=3)
-    table.cell(0, 0).text = "A1"
-    table.cell(0, 1).text = "B1"
-    table.cell(1, 2).text = "C2"
-    path = os.path.join(tempfile.mkdtemp(), "test_table.docx")
-    doc.save(path)
-    paragraphs = extract_paragraphs(path)
-    table_paras = [p for p in paragraphs if p["in_table"]]
-    assert len(table_paras) == 6, f"Expected 6 table paragraphs, got {len(table_paras)} total paragraphs={len(paragraphs)}"
-    for p in table_paras:
-        assert p["cell_row"] is not None, f"Expected cell_row, got None for {p}"
-        assert p["cell_col"] is not None, f"Expected cell_col, got None for {p}"
-    scored = [(p["cell_row"], p["cell_col"], p["runs"][0]["text"] if p["runs"] else "") for p in table_paras]
-    assert (0, 0, "A1") in scored, f"Missing A1 at (0,0): {scored}"
-    assert (0, 1, "B1") in scored, f"Missing B1 at (0,1): {scored}"
-    assert (1, 2, "C2") in scored, f"Missing C2 at (1,2): {scored}"
-    os.unlink(path)
-
-def test_extract_paragraphs_invalid_file():
-    try:
-        extract_paragraphs("/nonexistent/file.docx")
-        assert False, "Should have raised FileNotFoundError"
-    except FileNotFoundError:
-        pass
-
-
-def test_chunk_paragraphs():
-    paragraphs = [{"id": f"P{i}"} for i in range(25)]
-    chunks = chunk_paragraphs(paragraphs, 10)
-    assert len(chunks) == 3
-
-
-def test_translate_chunk():
-    chunk = [{"id": "P0", "runs": [{"text": "Hello world", "bold": False, "italic": False}]}]
-    provider = {"base_url": "http://invalid", "model": "test", "api_key": "bad"}
-    try:
-        translate_chunk(chunk, "Romanian", provider)
-        assert False, "Should have raised ConnectionError or similar"
-    except Exception:
-        pass
-
-
-def test_translate_chunk_retry():
-    pass
-
-
-def test_write_inline():
-    from docx import Document
-    import tempfile
-    import os
-    doc = Document()
-    p = doc.add_paragraph()
-    p.add_run("Original text")
-    src = os.path.join(tempfile.mkdtemp(), "source.docx")
-    doc.save(src)
-    translated = [{
-        "id": "P0",
-        "runs": [{"text": "Text tradus", "bold": False, "italic": False}],
-        "alignment": None,
-        "in_table": False,
-    }]
-    out = os.path.join(tempfile.mkdtemp(), "output.docx")
-    write_inline(src, translated, out)
-    result = Document(out)
-    assert result.paragraphs[0].text == "Text tradus"
-    os.unlink(src)
-    os.unlink(out)
-
 
 def _apply_run_formatting(run, run_data):
     run.bold = run_data.get("bold")
@@ -700,6 +588,7 @@ def _apply_run_formatting(run, run_data):
             run.font.color.rgb = RGBColor.from_string(run_data["color"])
         except (ValueError, AttributeError):
             pass
+
 
 
 def _format_number(value, fmt):
@@ -734,7 +623,9 @@ def _format_number(value, fmt):
     return str(value)
 
 
+
 _NUMBERING_FMT_CACHE = {}
+
 
 
 def _get_numpr_fmt(original_path, numId):
@@ -746,6 +637,7 @@ def _get_numpr_fmt(original_path, numId):
             n = z.read('word/numbering.xml').decode()
             abs_match = re.search(rf'<w:num w:numId=\"{numId}\".*?<w:abstractNumId w:val=\"(\d+)\"', n, re.DOTALL)
             if not abs_match:
+
                 _NUMBERING_FMT_CACHE[key] = None
                 return None
             abs_id = abs_match.group(1)
@@ -754,10 +646,12 @@ def _get_numpr_fmt(original_path, numId):
                 n, re.DOTALL
             )
             fmt = fmt_match.group(1) if fmt_match else None
+
             _NUMBERING_FMT_CACHE[key] = fmt
             return fmt
     except Exception:
         return None
+
 
 
 def _apply_numbering_labels(paras, original_path):
@@ -777,6 +671,7 @@ def _apply_numbering_labels(paras, original_path):
             if p["runs"]:
                 p["runs"][0]["text"] = prefix + p["runs"][0]["text"]
     return paras
+
 
 
 def write_side_by_side(original_path, original_paras, translated_paras, output_path):
@@ -822,51 +717,6 @@ def write_side_by_side(original_path, original_paras, translated_paras, output_p
     doc.save(output_path)
 
 
-def test_write_inline_with_table():
-    from docx import Document
-    import tempfile
-    import os
-    doc = Document()
-    doc.add_paragraph("Header text")
-    table = doc.add_table(rows=2, cols=2)
-    table.cell(0, 0).text = "Cell A1"
-    table.cell(0, 1).text = "Cell B1"
-    table.cell(1, 0).text = "Cell A2"
-    table.cell(1, 1).text = "Cell B2"
-    src = os.path.join(tempfile.mkdtemp(), "source.docx")
-    doc.save(src)
-    translated = [
-        {"id": "P0", "runs": [{"text": "Header text trans"}], "alignment": None, "in_table": False},
-        {"id": "P1", "runs": [{"text": "Celula A1"}], "alignment": None, "in_table": True, "cell_row": 0, "cell_col": 0},
-        {"id": "P2", "runs": [{"text": "Celula B1"}], "alignment": None, "in_table": True, "cell_row": 0, "cell_col": 1},
-        {"id": "P3", "runs": [{"text": "Celula A2"}], "alignment": None, "in_table": True, "cell_row": 1, "cell_col": 0},
-        {"id": "P4", "runs": [{"text": "Celula B2"}], "alignment": None, "in_table": True, "cell_row": 1, "cell_col": 1},
-    ]
-    out = os.path.join(tempfile.mkdtemp(), "output.docx")
-    write_inline(src, translated, out)
-    result = Document(out)
-    assert result.paragraphs[0].text == "Header text trans"
-    out_table = result.tables[0]
-    assert out_table.cell(0, 0).text == "Celula A1"
-    assert out_table.cell(0, 1).text == "Celula B1"
-    assert out_table.cell(1, 0).text == "Celula A2"
-    assert out_table.cell(1, 1).text == "Celula B2"
-    os.unlink(src)
-    os.unlink(out)
-
-
-def test_cli_parser():
-    args = parse_args(['input.docx', '--lang', 'ro'])
-    assert args.input == 'input.docx'
-    assert args.lang == 'ro'
-    assert args.mode == 'inline'
-    assert args.concurrency == 0
-    args = parse_args(['input.docx', '--lang', 'en', '--mode', 'side-by-side', '--concurrency', '2'])
-    assert args.input == 'input.docx'
-    assert args.lang == 'en'
-    assert args.mode == 'side-by-side'
-    assert args.concurrency == 2
-
 
 def _write_paras_to_cell(cell, paras):
     if not paras:
@@ -886,6 +736,7 @@ def _write_paras_to_cell(cell, paras):
         for run_data in para_dict["runs"]:
             run = p.add_run(run_data["text"])
             _apply_run_formatting(run, run_data)
+
 
 
 def _write_2cell_table(original_path, pairs, output_path):
@@ -922,196 +773,6 @@ def _write_2cell_table(original_path, pairs, output_path):
     doc.save(output_path)
 
 
-def test_write_2cell_table():
-    import tempfile, os
-    from docx import Document
-    doc = Document()
-    doc.add_paragraph("Source only")
-    src = os.path.join(tempfile.mkdtemp(), "src.docx")
-    doc.save(src)
-    pairs = [
-        ([{"runs": [{"text": "Left A", "bold": False}], "alignment": None, "numpr": None}],
-         [{"runs": [{"text": "Right A", "bold": False}], "alignment": None, "numpr": None}]),
-        ([{"runs": [{"text": "Left B", "bold": False}], "alignment": None, "numpr": None}],
-         [{"runs": [{"text": "Right B", "bold": False}], "alignment": None, "numpr": None}]),
-    ]
-    out = os.path.join(tempfile.mkdtemp(), "out.docx")
-    _write_2cell_table(src, pairs, out)
-    result = Document(out)
-    assert len(result.tables) == 1
-    t = result.tables[0]
-    assert len(t.rows) == 2
-    assert t.rows[0].cells[0].text == "Left A"
-    assert t.rows[0].cells[1].text == "Right A"
-    assert t.rows[1].cells[0].text == "Left B"
-    assert t.rows[1].cells[1].text == "Right B"
-    os.unlink(src); os.unlink(out)
-
-
-def test_write_2cell_table_no_borders():
-    import tempfile, os
-    from docx import Document
-    from lxml import etree
-    doc = Document()
-    doc.add_paragraph("x")
-    src = os.path.join(tempfile.mkdtemp(), "src.docx")
-    doc.save(src)
-    pairs = [([{"runs": [{"text": "A", "bold": False}], "alignment": None, "numpr": None}],
-              [{"runs": [{"text": "B", "bold": False}], "alignment": None, "numpr": None}])]
-    out = os.path.join(tempfile.mkdtemp(), "out.docx")
-    _write_2cell_table(src, pairs, out)
-    result = Document(out)
-    tbl = result.tables[0]
-    tbl_pr = tbl._tbl.tblPr
-    borders = tbl_pr.find(f'{NS_W}tblBorders')
-    assert borders is not None, "Table should have tblBorders element"
-    os.unlink(src); os.unlink(out)
-
-
-def test_write_side_by_side():
-    from docx import Document
-    import tempfile
-    import os
-    doc = Document()
-    p = doc.add_paragraph()
-    p.add_run("Original text")
-    src = os.path.join(tempfile.mkdtemp(), "source.docx")
-    doc.save(src)
-    originals = [{"id": "P0", "runs": [{"text": "Original text", "bold": False}], "alignment": None, "in_table": False}]
-    translated = [{"id": "P0", "runs": [{"text": "Text tradus", "bold": False}], "alignment": None, "in_table": False}]
-    out = os.path.join(tempfile.mkdtemp(), "output.docx")
-    write_side_by_side(src, originals, translated, out)
-    result = Document(out)
-    assert len(result.tables) == 1
-    table = result.tables[0]
-    assert len(table.rows) == 1
-    assert "Original text" in table.rows[0].cells[0].text
-    assert "Text tradus" in table.rows[0].cells[1].text
-    os.unlink(src)
-    os.unlink(out)
-
-
-def test_restore_placeholders():
-    original = "Hello {{client_name}}, your balance is {{amount}}"
-    translated = "Salut {{client_name}}, soldul tau este {{amount}}"
-    restored = restore_placeholders(translated, original)
-    assert "{{client_name}}" in restored
-    assert "{{amount}}" in restored
-
-
-def test_restore_missing_placeholder():
-    original = "Hello {{client_name}}"
-    translated = "Salut"
-    restored = restore_placeholders(translated, original)
-    assert "{{client_name}}" in restored
-
-
-def test_parse_translated_response_protects_placeholders():
-    chunk_ids = ["P0", "P1"]
-    response_text = "[P0] Salut {{client_name}}\n[P1] Soldul este {{amount}}"
-    original_text = "[P0] Hello {{client_name}}\n[P1] Your balance is {{amount}}"
-    result = _parse_translated_response(response_text, chunk_ids, original_text)
-    assert "{{client_name}}" in result["P0"]
-    assert "{{amount}}" in result["P1"]
-
-
-def test_has_2column_layout():
-    import tempfile, os
-    from docx import Document
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    doc = Document()
-    path = os.path.join(tempfile.mkdtemp(), "test.docx")
-    doc.save(path)
-    assert not _has_2column_layout(Document(path))
-    doc2 = Document()
-    sect_pr = doc2.sections[0]._sectPr
-    cols = OxmlElement('w:cols')
-    cols.set(qn('w:num'), '2')
-    cols.set(qn('w:space'), '720')
-    sect_pr.append(cols)
-    path2 = os.path.join(tempfile.mkdtemp(), "test2.docx")
-    doc2.save(path2)
-    assert _has_2column_layout(Document(path2))
-    os.unlink(path); os.unlink(path2)
-
-
-def test_has_2column_table():
-    import tempfile, os
-    from docx import Document
-    doc = Document()
-    doc.add_paragraph("Not a table")
-    path = os.path.join(tempfile.mkdtemp(), "test.docx")
-    doc.save(path)
-    assert not _has_2column_table(Document(path))
-
-    doc2 = Document()
-    doc2.add_table(rows=2, cols=2)
-    path2 = os.path.join(tempfile.mkdtemp(), "test2.docx")
-    doc2.save(path2)
-    assert _has_2column_table(Document(path2))
-
-    doc3 = Document()
-    doc3.add_table(rows=2, cols=3)
-    path3 = os.path.join(tempfile.mkdtemp(), "test3.docx")
-    doc3.save(path3)
-    assert not _has_2column_table(Document(path3))
-
-    os.unlink(path); os.unlink(path2); os.unlink(path3)
-
-
-def test_find_column_break():
-    import tempfile, os
-    from docx import Document
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    path = os.path.join(tempfile.mkdtemp(), "test.docx")
-    doc = Document()
-    doc.add_paragraph("Before break")
-    p = doc.add_paragraph()
-    r = p.add_run()
-    br = OxmlElement('w:br')
-    br.set(qn('w:type'), 'column')
-    r._element.append(br)
-    doc.add_paragraph("After break")
-    doc.save(path)
-    idx = _find_column_break(Document(path))
-    assert idx == 1, f"Expected 1, got {idx}"
-    doc2 = Document()
-    doc2.add_paragraph("No break")
-    doc2.add_paragraph("No break either")
-    path2 = os.path.join(tempfile.mkdtemp(), "test2.docx")
-    doc2.save(path2)
-    assert _find_column_break(Document(path2)) is None
-    os.unlink(path); os.unlink(path2)
-
-
-def test_heuristic_column_split():
-    from docx import Document
-    doc = Document()
-    for _ in range(10):
-        doc.add_paragraph("x")
-    assert _heuristic_column_split(doc) == 5
-    doc2 = Document()
-    for _ in range(7):
-        doc2.add_paragraph("x")
-    assert _heuristic_column_split(doc2) == 3
-
-
-def test_pair_by_position():
-    paras = [f"P{i}" for i in range(6)]
-    pairs = _pair_by_position(paras, 3)
-    assert len(pairs) == 3
-    assert pairs[0] == ("P0", "P3")
-    assert pairs[1] == ("P1", "P4")
-    assert pairs[2] == ("P2", "P5")
-    paras2 = [f"P{i}" for i in range(5)]
-    pairs2 = _pair_by_position(paras2, 2)
-    assert len(pairs2) == 3
-    assert pairs2[0] == ("P0", "P2")
-    assert pairs2[1] == ("P1", "P3")
-    assert pairs2[2] == (None, "P4")
-
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=_["cli_desc"])
@@ -1131,6 +792,7 @@ def parse_args(argv=None):
     global _PARSER
     _PARSER = parser
     return parser.parse_args(argv)
+
 
 
 def main():
@@ -1187,122 +849,4 @@ def main():
     print(_["saved"].format(output=output))
 
 
-def _create_2column_test_docx(path):
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    from docx import Document
 
-    doc = Document()
-    sect_pr = doc.sections[0]._sectPr
-    existing = sect_pr.find(qn('w:cols'))
-    if existing is not None:
-        sect_pr.remove(existing)
-    cols = OxmlElement('w:cols')
-    cols.set(qn('w:num'), '2')
-    cols.set(qn('w:space'), '720')
-    sect_pr.append(cols)
-
-    doc.add_paragraph("First original paragraph.")
-    doc.add_paragraph("Second original paragraph.")
-    doc.add_paragraph("Third original paragraph.")
-
-    p_break = doc.add_paragraph()
-    r_break = p_break.add_run()
-    br = OxmlElement('w:br')
-    br.set(qn('w:type'), 'column')
-    r_break._element.append(br)
-
-    doc.add_paragraph("Primul paragraf original.")
-    doc.add_paragraph("Al doilea paragraf original.")
-    doc.add_paragraph("Al treilea paragraf original.")
-    doc.save(path)
-
-
-def test_transform2cell_integration():
-    import tempfile, os
-    from docx import Document
-    path = os.path.join(tempfile.mkdtemp(), "src.docx")
-    _create_2column_test_docx(path)
-    out = os.path.join(tempfile.mkdtemp(), "out.docx")
-    transform2cell(path, out)
-    result = Document(out)
-    assert len(result.tables) == 1
-    t = result.tables[0]
-    assert len(t.rows) == 3
-    assert "First original" in t.rows[0].cells[0].text
-    assert "Primul paragraf" in t.rows[0].cells[1].text
-    assert "Second original" in t.rows[1].cells[0].text
-    assert "Al doilea" in t.rows[1].cells[1].text
-    assert "Third original" in t.rows[2].cells[0].text
-    assert "Al treilea" in t.rows[2].cells[1].text
-    os.unlink(path); os.unlink(out)
-
-
-def test_transform2cell_table_integration():
-    import tempfile, os
-    from docx import Document
-    path = os.path.join(tempfile.mkdtemp(), "src.docx")
-    doc = Document()
-    table = doc.add_table(rows=2, cols=2)
-    table.cell(0, 0).text = "Original A"
-    table.cell(0, 1).text = "Translated A"
-    table.cell(1, 0).text = "Original B"
-    table.cell(1, 1).text = "Translated B"
-    doc.save(path)
-    out = os.path.join(tempfile.mkdtemp(), "out.docx")
-    transform2cell(path, out)
-    result = Document(out)
-    assert len(result.tables) == 1
-    t = result.tables[0]
-    assert len(t.rows) == 2
-    assert "Original A" in t.rows[0].cells[0].text
-    assert "Translated A" in t.rows[0].cells[1].text
-    assert "Original B" in t.rows[1].cells[0].text
-    assert "Translated B" in t.rows[1].cells[1].text
-    os.unlink(path); os.unlink(out)
-
-
-def test_cli_parser_transform2cell():
-    args = parse_args(['input.docx', '--transform2cell'])
-    assert args.transform2cell is True
-    assert args.input == 'input.docx'
-    args2 = parse_args(['input.docx', '--transform2cell', '--output', 'out.docx'])
-    assert args2.transform2cell
-    assert args2.output == 'out.docx'
-
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        main()
-    else:
-        tests = [
-            ("test_config_loading", test_config_loading),
-            ("test_get_provider", test_get_provider),
-            ("test_extract_paragraphs", test_extract_paragraphs),
-            ("test_extract_paragraphs_with_table", test_extract_paragraphs_with_table),
-            ("test_extract_paragraphs_invalid_file", test_extract_paragraphs_invalid_file),
-            ("test_chunk_paragraphs", test_chunk_paragraphs),
-            ("test_translate_chunk", test_translate_chunk),
-            ("test_translate_chunk_retry", test_translate_chunk_retry),
-            ("test_write_inline", test_write_inline),
-            ("test_write_side_by_side", test_write_side_by_side),
-            ("test_write_inline_with_table", test_write_inline_with_table),
-            ("test_cli_parser", test_cli_parser),
-            ("test_restore_placeholders", test_restore_placeholders),
-            ("test_restore_missing_placeholder", test_restore_missing_placeholder),
-            ("test_parse_translated_response_protects_placeholders", test_parse_translated_response_protects_placeholders),
-            ("test_has_2column_layout", test_has_2column_layout),
-            ("test_has_2column_table", test_has_2column_table),
-            ("test_find_column_break", test_find_column_break),
-            ("test_heuristic_column_split", test_heuristic_column_split),
-            ("test_write_2cell_table", test_write_2cell_table),
-            ("test_write_2cell_table_no_borders", test_write_2cell_table_no_borders),
-            ("test_pair_by_position", test_pair_by_position),
-            ("test_transform2cell_integration", test_transform2cell_integration),
-            ("test_transform2cell_table_integration", test_transform2cell_table_integration),
-            ("test_cli_parser_transform2cell", test_cli_parser_transform2cell),
-        ]
-        for name, fn in tests:
-            fn()
-            print(_["test_pass"].format(name=name))
-        print(_["all_pass"])

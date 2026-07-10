@@ -15,7 +15,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY translate_docx.py messages.py server.py worker.py db.py config.json ./
+COPY emplawra_docx_engine.py messages.py server.py worker.py db.py config.json tests/ ./
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 RUN mkdir -p uploads

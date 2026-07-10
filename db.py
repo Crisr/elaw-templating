@@ -1,11 +1,10 @@
-import os
 import uuid
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
-import translate_docx
+import emplawra_docx_engine
 
 UPLOAD_DIR = Path("uploads")
 DB_PATH = "jobs.db"
@@ -28,14 +27,14 @@ def get_config():
     if _config is None:
         with _config_lock:
             if _config is None:
-                _config = translate_docx.load_config()
+                _config = emplawra_docx_engine.load_config()
     return _config
 
 
 def reload_config():
     global _config
     with _config_lock:
-        _config = translate_docx.load_config()
+        _config = emplawra_docx_engine.load_config()
 
 
 def _get_db():
