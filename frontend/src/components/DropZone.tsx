@@ -1,16 +1,33 @@
 import { useCallback, useRef, useState } from 'react'
-import { messages } from '../messages'
+import { useLocale } from '../LocaleContext'
+import JSZip from 'jszip'
 
 interface Props {
   file: File | null
   onFile: (f: File) => void
   disabled: boolean
+  onTwoColumnDetected?: (v: boolean) => void
 }
 
-export default function DropZone({ file, onFile, disabled }: Props) {
+export default function DropZone({ file, onFile, disabled, onTwoColumnDetected }: Props) {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { dropZone: msg } = messages
+  const { messages } = useLocale()
+  const msg = messages.dropZone
+
+  const detectTwoColumn = useCallback(async (f: File) => {
+    if (!onTwoColumnDetected) return
+    try {
+      const buf = await f.arrayBuffer()
+      const zip = await JSZip.loadAsync(buf)
+      const docXml = await zip.file('word/document.xml')?.async('string')
+      if (!docXml) { onTwoColumnDetected(false); return }
+      const has2Cols = /<w:cols[^>]*w:num\s*=\s*"2"/.test(docXml)
+      onTwoColumnDetected(has2Cols)
+    } catch {
+      onTwoColumnDetected(false)
+    }
+  }, [onTwoColumnDetected])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -18,17 +35,23 @@ export default function DropZone({ file, onFile, disabled }: Props) {
       setDragging(false)
       if (disabled) return
       const f = e.dataTransfer.files[0]
-      if (f && f.name.endsWith('.docx')) onFile(f)
+      if (f && f.name.endsWith('.docx')) {
+        onFile(f)
+        detectTwoColumn(f)
+      }
     },
-    [disabled, onFile]
+    [disabled, onFile, detectTwoColumn]
   )
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const f = e.target.files?.[0]
-      if (f) onFile(f)
+      if (f) {
+        onFile(f)
+        detectTwoColumn(f)
+      }
     },
-    [onFile]
+    [onFile, detectTwoColumn]
   )
 
   return (
