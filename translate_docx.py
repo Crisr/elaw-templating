@@ -742,6 +742,94 @@ def test_cli_parser():
     assert args.concurrency == 2
 
 
+def _write_2cell_table(original_path, pairs, output_path):
+    src = Document(original_path)
+    doc = Document()
+    for section in src.sections:
+        for new_section in doc.sections:
+            new_section.page_width = section.page_width
+            new_section.page_height = section.page_height
+            new_section.left_margin = section.left_margin
+            new_section.right_margin = section.right_margin
+            new_section.top_margin = section.top_margin
+            new_section.bottom_margin = section.bottom_margin
+        break
+
+    table = doc.add_table(rows=len(pairs), cols=2)
+    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    tbl_pr = table._tbl.tblPr
+    tbl_borders = doc.element.makeelement(ns + 'tblBorders', {})
+    for edge in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
+        child = doc.element.makeelement(ns + edge, {})
+        child.set(ns + 'val', 'none')
+        child.set(ns + 'sz', '0')
+        child.set(ns + 'space', '0')
+        child.set(ns + 'color', 'auto')
+        tbl_borders.append(child)
+    tbl_pr.append(tbl_borders)
+
+    for i, (left_data, right_data) in enumerate(pairs):
+        left_cell = table.rows[i].cells[0]
+        right_cell = table.rows[i].cells[1]
+        if left_data:
+            for run_data in left_data["runs"]:
+                p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
+                run = p.add_run(run_data["text"])
+                _apply_run_formatting(run, run_data)
+        if right_data:
+            for run_data in right_data["runs"]:
+                p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
+                run = p.add_run(run_data["text"])
+                _apply_run_formatting(run, run_data)
+    doc.save(output_path)
+
+
+def test_write_2cell_table():
+    import tempfile, os
+    from docx import Document
+    doc = Document()
+    doc.add_paragraph("Source only")
+    src = os.path.join(tempfile.mkdtemp(), "src.docx")
+    doc.save(src)
+    pairs = [
+        ({"runs": [{"text": "Left A", "bold": False}], "alignment": None, "numpr": None},
+         {"runs": [{"text": "Right A", "bold": False}], "alignment": None, "numpr": None}),
+        ({"runs": [{"text": "Left B", "bold": False}], "alignment": None, "numpr": None},
+         {"runs": [{"text": "Right B", "bold": False}], "alignment": None, "numpr": None}),
+    ]
+    out = os.path.join(tempfile.mkdtemp(), "out.docx")
+    _write_2cell_table(src, pairs, out)
+    result = Document(out)
+    assert len(result.tables) == 1
+    t = result.tables[0]
+    assert len(t.rows) == 2
+    assert t.rows[0].cells[0].text == "Left A"
+    assert t.rows[0].cells[1].text == "Right A"
+    assert t.rows[1].cells[0].text == "Left B"
+    assert t.rows[1].cells[1].text == "Right B"
+    os.unlink(src); os.unlink(out)
+
+
+def test_write_2cell_table_no_borders():
+    import tempfile, os
+    from docx import Document
+    from lxml import etree
+    doc = Document()
+    doc.add_paragraph("x")
+    src = os.path.join(tempfile.mkdtemp(), "src.docx")
+    doc.save(src)
+    pairs = [({"runs": [{"text": "A", "bold": False}], "alignment": None, "numpr": None},
+              {"runs": [{"text": "B", "bold": False}], "alignment": None, "numpr": None})]
+    out = os.path.join(tempfile.mkdtemp(), "out.docx")
+    _write_2cell_table(src, pairs, out)
+    result = Document(out)
+    tbl = result.tables[0]
+    tbl_pr = tbl._tbl.tblPr
+    borders = tbl_pr.find(f'{NS_W}tblBorders')
+    assert borders is not None, "Table should have tblBorders element"
+    os.unlink(src); os.unlink(out)
+
+
 def test_write_side_by_side():
     from docx import Document
     import tempfile
@@ -927,6 +1015,8 @@ if __name__ == "__main__":
             ("test_has_2column_layout", test_has_2column_layout),
             ("test_find_column_break", test_find_column_break),
             ("test_heuristic_column_split", test_heuristic_column_split),
+            ("test_write_2cell_table", test_write_2cell_table),
+            ("test_write_2cell_table_no_borders", test_write_2cell_table_no_borders),
             ("test_pair_by_position", test_pair_by_position),
         ]
         for name, fn in tests:
