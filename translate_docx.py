@@ -374,37 +374,15 @@ def _extract_pairs_from_table(doc):
     table = doc.tables[0]
     for row in table.rows:
         cells = row.cells
-        left_data = None
-        right_data = None
+        left_paras = []
+        right_paras = []
         if len(cells) >= 1:
-            runs = []
             for para in cells[0].paragraphs:
-                for run in para.runs:
-                    runs.append({
-                        "text": run.text,
-                        "bold": run.bold,
-                        "italic": run.italic,
-                        "underline": run.underline,
-                        "font_name": run.font.name,
-                        "font_size": run.font.size.pt if run.font.size else None,
-                        "color": str(run.font.color.rgb) if run.font.color and run.font.color.rgb else None,
-                    })
-            left_data = {"runs": runs, "alignment": None, "numpr": None}
+                left_paras.append(_build_para_dict(para))
         if len(cells) >= 2:
-            runs = []
             for para in cells[1].paragraphs:
-                for run in para.runs:
-                    runs.append({
-                        "text": run.text,
-                        "bold": run.bold,
-                        "italic": run.italic,
-                        "underline": run.underline,
-                        "font_name": run.font.name,
-                        "font_size": run.font.size.pt if run.font.size else None,
-                        "color": str(run.font.color.rgb) if run.font.color and run.font.color.rgb else None,
-                    })
-            right_data = {"runs": runs, "alignment": None, "numpr": None}
-        pairs.append((left_data, right_data))
+                right_paras.append(_build_para_dict(para))
+        pairs.append((left_paras, right_paras))
     return pairs
 
 
@@ -434,7 +412,7 @@ def _pair_by_position(paras, split_idx):
 def _build_para_dict(para):
     return {
         "runs": _extract_runs(para),
-        "alignment": str(para.alignment) if para.alignment else None,
+        "alignment": str(int(para.alignment)) if para.alignment is not None else None,
         "numpr": _extract_numpr(para),
     }
 
@@ -544,18 +522,20 @@ def transform2cell(input_path, output_path, provider=None):
 
     col1 = all_dicts[:split_idx]
     col2 = all_dicts[split_idx + skip:]
-    pairs = list(zip(col1, col2))
+    pairs = [([d1], [d2]) for d1, d2 in zip(col1, col2)]
 
     if len(col1) != len(col2):
         print(_["warn_transform2cell_mismatch"].format(c1=len(col1), c2=len(col2)), file=sys.stderr)
 
     if provider:
-        pairs = _llm_verify_pairs(col1, col2, pairs, provider)
-        if pairs is None:
-            pairs = _llm_full_column_matching(all_dicts, provider)
-        if pairs is None:
+        raw_pairs = list(zip(col1, col2))
+        raw_pairs = _llm_verify_pairs(col1, col2, raw_pairs, provider)
+        if raw_pairs is None:
+            raw_pairs = _llm_full_column_matching(all_dicts, provider)
+        if raw_pairs is None:
             print("AI matching failed. Falling back to heuristic pairing.", file=sys.stderr)
-            pairs = list(zip(col1, col2))
+            raw_pairs = list(zip(col1, col2))
+        pairs = [([d1], [d2]) for d1, d2 in raw_pairs]
 
     _write_2cell_table(input_path, pairs, output_path)
 
@@ -888,6 +868,26 @@ def test_cli_parser():
     assert args.concurrency == 2
 
 
+def _write_paras_to_cell(cell, paras):
+    if not paras:
+        return
+    for pi, para_dict in enumerate(paras):
+        if pi == 0 and cell.paragraphs:
+            p = cell.paragraphs[0]
+            p.clear()
+        else:
+            p = cell.add_paragraph()
+        if para_dict.get("alignment"):
+            try:
+                from docx.enum.text import WD_ALIGN_PARAGRAPH
+                p.alignment = WD_ALIGN_PARAGRAPH(int(para_dict["alignment"]))
+            except (ValueError, TypeError):
+                pass
+        for run_data in para_dict["runs"]:
+            run = p.add_run(run_data["text"])
+            _apply_run_formatting(run, run_data)
+
+
 def _write_2cell_table(original_path, pairs, output_path):
     src = Document(original_path)
     doc = Document()
@@ -914,19 +914,11 @@ def _write_2cell_table(original_path, pairs, output_path):
         tbl_borders.append(child)
     tbl_pr.append(tbl_borders)
 
-    for i, (left_data, right_data) in enumerate(pairs):
+    for i, (left_paras, right_paras) in enumerate(pairs):
         left_cell = table.rows[i].cells[0]
         right_cell = table.rows[i].cells[1]
-        if left_data:
-            for run_data in left_data["runs"]:
-                p = left_cell.paragraphs[0] if left_cell.paragraphs else left_cell.add_paragraph()
-                run = p.add_run(run_data["text"])
-                _apply_run_formatting(run, run_data)
-        if right_data:
-            for run_data in right_data["runs"]:
-                p = right_cell.paragraphs[0] if right_cell.paragraphs else right_cell.add_paragraph()
-                run = p.add_run(run_data["text"])
-                _apply_run_formatting(run, run_data)
+        _write_paras_to_cell(left_cell, left_paras)
+        _write_paras_to_cell(right_cell, right_paras)
     doc.save(output_path)
 
 
@@ -938,10 +930,10 @@ def test_write_2cell_table():
     src = os.path.join(tempfile.mkdtemp(), "src.docx")
     doc.save(src)
     pairs = [
-        ({"runs": [{"text": "Left A", "bold": False}], "alignment": None, "numpr": None},
-         {"runs": [{"text": "Right A", "bold": False}], "alignment": None, "numpr": None}),
-        ({"runs": [{"text": "Left B", "bold": False}], "alignment": None, "numpr": None},
-         {"runs": [{"text": "Right B", "bold": False}], "alignment": None, "numpr": None}),
+        ([{"runs": [{"text": "Left A", "bold": False}], "alignment": None, "numpr": None}],
+         [{"runs": [{"text": "Right A", "bold": False}], "alignment": None, "numpr": None}]),
+        ([{"runs": [{"text": "Left B", "bold": False}], "alignment": None, "numpr": None}],
+         [{"runs": [{"text": "Right B", "bold": False}], "alignment": None, "numpr": None}]),
     ]
     out = os.path.join(tempfile.mkdtemp(), "out.docx")
     _write_2cell_table(src, pairs, out)
@@ -964,8 +956,8 @@ def test_write_2cell_table_no_borders():
     doc.add_paragraph("x")
     src = os.path.join(tempfile.mkdtemp(), "src.docx")
     doc.save(src)
-    pairs = [({"runs": [{"text": "A", "bold": False}], "alignment": None, "numpr": None},
-              {"runs": [{"text": "B", "bold": False}], "alignment": None, "numpr": None})]
+    pairs = [([{"runs": [{"text": "A", "bold": False}], "alignment": None, "numpr": None}],
+              [{"runs": [{"text": "B", "bold": False}], "alignment": None, "numpr": None}])]
     out = os.path.join(tempfile.mkdtemp(), "out.docx")
     _write_2cell_table(src, pairs, out)
     result = Document(out)
@@ -1152,8 +1144,12 @@ def main():
         output = args.output
         if not output:
             stem = args.input.rsplit(".", 1)[0]
-            output = f"{stem}_2cell.docx"
-        if os.path.exists(output):
+            output = f"{stem}_2col_table.docx"
+        if output == args.input:
+            stem = output.rsplit(".docx", 1)[0]
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output = f"{stem}_{timestamp}.docx"
+        elif os.path.exists(output):
             stem = output.rsplit(".docx", 1)[0]
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             output = f"{stem}_{timestamp}.docx"
