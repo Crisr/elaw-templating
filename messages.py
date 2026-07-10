@@ -29,4 +29,8 @@ MESSAGES = {
         "Preserve {{...}} placeholders without translating them. "
         "Output ONLY the translated paragraphs with their IDs \u2014 no extra text."
     ),
+    "warn_no_2column_layout": "Warning: Input document does not appear to have a 2-column layout. Results may be unexpected.",
+    "info_heuristic_column_split": "Info: No column break marker found. Using heuristic split at paragraph {idx}.",
+    "warn_transform2cell_mismatch": "Warning: Column paragraph counts differ (col1={c1}, col2={c2}).",
+    "cli_transform2cell_help": "Convert 2-column Word layout to table-based document",
 }

@@ -414,6 +414,126 @@ def _pair_by_position(paras, split_idx):
     return pairs
 
 
+def _build_para_dict(para):
+    return {
+        "runs": _extract_runs(para),
+        "alignment": str(para.alignment) if para.alignment else None,
+        "numpr": _extract_numpr(para),
+    }
+
+
+def _llm_verify_pairs(col1_dicts, col2_dicts, pairs, provider):
+    if provider is None:
+        return pairs
+    lines = []
+    for i, (p1, p2) in enumerate(pairs):
+        t1 = "".join(r["text"] for r in p1["runs"]) if p1 else ""
+        t2 = "".join(r["text"] for r in p2["runs"]) if p2 else ""
+        lines.append(f"[ROW {i}] Left: {t1}")
+        lines.append(f"[ROW {i}] Right: {t2}")
+    chunk_text = "\n".join(lines)
+    client = OpenAI(base_url=provider["base_url"], api_key=provider.get("api_key", "not-needed"))
+    system_prompt = (
+        "You are verifying a two-column document alignment. "
+        "Column 1 (Left) has original text, Column 2 (Right) has the translation. "
+        "Each ROW shows a paired paragraph. If any rows are misaligned "
+        "(wrong original matched to translation), return corrected pairs.\n\n"
+        'Return ONLY JSON: {"pairs": [[0,0], [1,1], ...], '
+        '"confidence": "high|medium|low", "issues": ["note any mismatches"]}'
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=provider["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": chunk_text},
+            ],
+            temperature=0.0,
+        )
+        result = resp.choices[0].message.content
+        parsed = json.loads(result)
+        confidence = parsed.get("confidence", "low")
+        if confidence == "low":
+            print("Warning: AI verification confidence low, using heuristic pairing", file=sys.stderr)
+        return pairs
+    except Exception as e:
+        print(f"Warning: AI verification failed ({e}), using heuristic pairing", file=sys.stderr)
+        return pairs
+
+
+def _llm_full_column_matching(all_dicts, provider):
+    if provider is None:
+        return None
+    lines = []
+    for i, p in enumerate(all_dicts):
+        text = "".join(r["text"] for r in p["runs"])
+        lines.append(f"[P{i}] {text}")
+    chunk_text = "\n".join(lines)
+    client = OpenAI(base_url=provider["base_url"], api_key=provider.get("api_key", "not-needed"))
+    system_prompt = (
+        "This document has two columns. Paragraphs are listed in order "
+        "(first column 1, then column 2). Determine the column split "
+        "and pair each original with its translation.\n\n"
+        'Return ONLY JSON: {"pairs": [[0, 5], [1, 6], ...], '
+        '"confidence": "high|medium|low"} where each pair maps a column-1 '
+        "paragraph index to its column-2 paragraph index."
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=provider["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": chunk_text},
+            ],
+            temperature=0.0,
+        )
+        result = resp.choices[0].message.content
+        parsed = json.loads(result)
+        index_pairs = parsed.get("pairs", [])
+        result_pairs = []
+        for c1_idx, c2_idx in index_pairs:
+            left = all_dicts[c1_idx] if c1_idx < len(all_dicts) else None
+            right = all_dicts[c2_idx] if c2_idx < len(all_dicts) else None
+            result_pairs.append((left, right))
+        return result_pairs
+    except Exception as e:
+        print(f"Warning: full AI column matching failed ({e})", file=sys.stderr)
+        return None
+
+
+def transform2cell(input_path, output_path, provider=None):
+    doc = Document(input_path)
+    if not _has_2column_layout(doc):
+        print("Warning: Input document does not appear to have a 2-column layout. Results may be unexpected.", file=sys.stderr)
+
+    split_idx = _find_column_break(doc)
+    if split_idx is None:
+        split_idx = _heuristic_column_split(doc)
+        print(f"Info: No column break marker found. Using heuristic split at paragraph {split_idx}.", file=sys.stderr)
+        skip = 0
+    else:
+        skip = 1
+
+    all_dicts = [_build_para_dict(p) for p in doc.paragraphs]
+
+    col1 = all_dicts[:split_idx]
+    col2 = all_dicts[split_idx + skip:]
+    pairs = list(zip(col1, col2))
+
+    if len(col1) != len(col2):
+        print(f"Warning: Column paragraph counts differ (col1={len(col1)}, col2={len(col2)}).", file=sys.stderr)
+
+    if provider:
+        pairs = _llm_verify_pairs(col1, col2, pairs, provider)
+        if pairs is None:
+            pairs = _llm_full_column_matching(all_dicts, provider)
+        if pairs is None:
+            print("AI matching failed. Falling back to heuristic pairing.", file=sys.stderr)
+            pairs = list(zip(col1, col2))
+
+    _write_2cell_table(input_path, pairs, output_path)
+
+
 def test_config_loading():
     import json
     import tempfile
@@ -954,7 +1074,7 @@ def test_pair_by_position():
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=_["cli_desc"])
     parser.add_argument("input", help=_["cli_input_help"])
-    parser.add_argument("--lang", "-l", required=True, choices=["ro", "en"],
+    parser.add_argument("--lang", "-l", choices=["ro", "en"],
                         help=_["cli_lang_help"])
     parser.add_argument("--mode", "-m", choices=["inline", "side-by-side"],
                         default="inline", help=_["cli_mode_help"])
@@ -964,12 +1084,35 @@ def parse_args(argv=None):
     parser.add_argument("--config", "-c", default="config.json", help=_["cli_config_help"])
     parser.add_argument("--concurrency", "-j", type=int, default=0,
                         help=_["cli_concurrency_help"])
+    parser.add_argument("--transform2cell", action="store_true",
+                        help="Convert 2-column Word layout to table-based 2-column document")
     return parser.parse_args(argv)
 
 
 def main():
     args = parse_args()
     config = load_config(args.config)
+
+    if args.transform2cell:
+        provider = get_provider(config, args.provider) if args.provider else None
+        if args.model and provider:
+            provider["model"] = args.model
+        output = args.output
+        if not output:
+            stem = args.input.rsplit(".", 1)[0]
+            output = f"{stem}_2cell.docx"
+        if os.path.exists(output):
+            stem = output.rsplit(".docx", 1)[0]
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output = f"{stem}_{timestamp}.docx"
+        transform2cell(args.input, output, provider)
+        print(_["saved"].format(output=output))
+        return
+
+    if not args.lang:
+        print("--lang is required (unless using --transform2cell)", file=sys.stderr)
+        sys.exit(1)
+
     provider = get_provider(config, args.provider)
     if args.model:
         provider["model"] = args.model
@@ -990,6 +1133,35 @@ def main():
     else:
         write_inline(args.input, translated, output)
     print(_["saved"].format(output=output))
+
+
+def test_transform2cell_integration():
+    import tempfile, os
+    from docx import Document
+    path = os.path.join(tempfile.mkdtemp(), "src.docx")
+    _create_2column_test_docx(path)
+    out = os.path.join(tempfile.mkdtemp(), "out.docx")
+    transform2cell(path, out)
+    result = Document(out)
+    assert len(result.tables) == 1
+    t = result.tables[0]
+    assert len(t.rows) == 3
+    assert "First original" in t.rows[0].cells[0].text
+    assert "Primul paragraf" in t.rows[0].cells[1].text
+    assert "Second original" in t.rows[1].cells[0].text
+    assert "Al doilea" in t.rows[1].cells[1].text
+    assert "Third original" in t.rows[2].cells[0].text
+    assert "Al treilea" in t.rows[2].cells[1].text
+    os.unlink(path); os.unlink(out)
+
+
+def test_cli_parser_transform2cell():
+    args = parse_args(['input.docx', '--transform2cell'])
+    assert args.transform2cell is True
+    assert args.input == 'input.docx'
+    args2 = parse_args(['input.docx', '--transform2cell', '--output', 'out.docx'])
+    assert args2.transform2cell
+    assert args2.output == 'out.docx'
 
 
 if __name__ == "__main__":
@@ -1018,6 +1190,8 @@ if __name__ == "__main__":
             ("test_write_2cell_table", test_write_2cell_table),
             ("test_write_2cell_table_no_borders", test_write_2cell_table_no_borders),
             ("test_pair_by_position", test_pair_by_position),
+            ("test_transform2cell_integration", test_transform2cell_integration),
+            ("test_cli_parser_transform2cell", test_cli_parser_transform2cell),
         ]
         for name, fn in tests:
             fn()
