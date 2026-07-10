@@ -73,6 +73,8 @@ async def api_translate(
         job_id = db.create_job(lang, mode, provider, model)
 
     head = await file.read(4)
+    if head != DOCX_MAGIC:
+        raise HTTPException(400, msg.MESSAGES["err_not_docx"])
     source_path = db.UPLOAD_DIR / f"{job_id}_source.docx"
     with open(source_path, "wb") as f:
         f.write(head)

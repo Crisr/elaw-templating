@@ -1,4 +1,4 @@
-import { messages } from '../messages'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   jobId: string
@@ -6,7 +6,8 @@ interface Props {
 }
 
 export default function DownloadLink({ jobId, onReset }: Props) {
-  const { downloadLink: msg } = messages
+  const { messages } = useLocale()
+  const msg = messages.downloadLink
 
   return (
     <div className="text-center space-y-4">

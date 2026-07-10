@@ -1,4 +1,4 @@
-import { messages } from '../messages'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   progress: number
@@ -7,8 +7,8 @@ interface Props {
 
 export default function ProgressBar({ progress, total }: Props) {
   const pct = total > 0 ? Math.round((progress / total) * 100) : 0
-  const { progressBar: msg } = messages
-  const label = msg.translating
+  const { messages } = useLocale()
+  const label = messages.progressBar.translating
     .replace('{progress}', String(progress))
     .replace('{total}', String(total))
     .replace('{pct}', String(pct))

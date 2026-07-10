@@ -33,4 +33,6 @@ MESSAGES = {
     "info_heuristic_column_split": "Info: No column break marker found. Using heuristic split at paragraph {idx}.",
     "warn_transform2cell_mismatch": "Warning: Column paragraph counts differ (col1={c1}, col2={c2}).",
     "cli_transform2cell_help": "Convert 2-column Word layout to table-based document",
+    "warn_ai_low_confidence": "Warning: AI verification confidence low, using heuristic pairing",
+    "warn_ai_verify_failed": "Warning: AI verification failed ({e}), using heuristic pairing",
 }
