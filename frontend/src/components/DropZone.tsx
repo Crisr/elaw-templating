@@ -22,8 +22,10 @@ export default function DropZone({ file, onFile, disabled, onTwoColumnDetected }
       const zip = await JSZip.loadAsync(buf)
       const docXml = await zip.file('word/document.xml')?.async('string')
       if (!docXml) { onTwoColumnDetected(false); return }
-      const has2Cols = /<w:cols[^>]*w:num\s*=\s*"2"/.test(docXml)
-      onTwoColumnDetected(has2Cols)
+      const hasWordCols = /<w:cols[^>]*w:num\s*=\s*"2"/.test(docXml)
+      const gridMatch = docXml.match(/<w:tblGrid>(.*?)<\/w:tblGrid>/)
+      const has2ColTable = gridMatch ? (gridMatch[1].match(/<w:gridCol/g) || []).length === 2 : false
+      onTwoColumnDetected(hasWordCols || has2ColTable)
     } catch {
       onTwoColumnDetected(false)
     }

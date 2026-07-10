@@ -355,11 +355,57 @@ def _has_2column_layout(doc):
         sect_pr = section._sectPr
         if sect_pr is not None:
             for cols in sect_pr.findall(f'{NS_W}cols'):
-                if cols is not None:
-                    num = cols.get(f'{NS_W}num')
-                    if num and int(num) == 2:
-                        return True
+                num = cols.get(f'{NS_W}num')
+                if num and int(num) == 2:
+                    return True
     return False
+
+
+def _has_2column_table(doc):
+    return len(doc.tables) >= 1 and len(doc.tables[0].columns) == 2
+
+
+def _is_2column_format(doc):
+    return _has_2column_layout(doc) or _has_2column_table(doc)
+
+
+def _extract_pairs_from_table(doc):
+    pairs = []
+    table = doc.tables[0]
+    for row in table.rows:
+        cells = row.cells
+        left_data = None
+        right_data = None
+        if len(cells) >= 1:
+            runs = []
+            for para in cells[0].paragraphs:
+                for run in para.runs:
+                    runs.append({
+                        "text": run.text,
+                        "bold": run.bold,
+                        "italic": run.italic,
+                        "underline": run.underline,
+                        "font_name": run.font.name,
+                        "font_size": run.font.size.pt if run.font.size else None,
+                        "color": str(run.font.color.rgb) if run.font.color and run.font.color.rgb else None,
+                    })
+            left_data = {"runs": runs, "alignment": None, "numpr": None}
+        if len(cells) >= 2:
+            runs = []
+            for para in cells[1].paragraphs:
+                for run in para.runs:
+                    runs.append({
+                        "text": run.text,
+                        "bold": run.bold,
+                        "italic": run.italic,
+                        "underline": run.underline,
+                        "font_name": run.font.name,
+                        "font_size": run.font.size.pt if run.font.size else None,
+                        "color": str(run.font.color.rgb) if run.font.color and run.font.color.rgb else None,
+                    })
+            right_data = {"runs": runs, "alignment": None, "numpr": None}
+        pairs.append((left_data, right_data))
+    return pairs
 
 
 def _find_column_break(doc):
@@ -475,8 +521,16 @@ def _llm_full_column_matching(all_dicts, provider):
 
 def transform2cell(input_path, output_path, provider=None):
     doc = Document(input_path)
-    if not _has_2column_layout(doc):
+    is_col = _has_2column_layout(doc)
+    is_table = _has_2column_table(doc)
+
+    if not is_col and not is_table:
         print(_["warn_no_2column_layout"], file=sys.stderr)
+
+    if is_table and not is_col:
+        pairs = _extract_pairs_from_table(doc)
+        _write_2cell_table(input_path, pairs, output_path)
+        return
 
     split_idx = _find_column_break(doc)
     if split_idx is None:
@@ -990,6 +1044,30 @@ def test_has_2column_layout():
     os.unlink(path); os.unlink(path2)
 
 
+def test_has_2column_table():
+    import tempfile, os
+    from docx import Document
+    doc = Document()
+    doc.add_paragraph("Not a table")
+    path = os.path.join(tempfile.mkdtemp(), "test.docx")
+    doc.save(path)
+    assert not _has_2column_table(Document(path))
+
+    doc2 = Document()
+    doc2.add_table(rows=2, cols=2)
+    path2 = os.path.join(tempfile.mkdtemp(), "test2.docx")
+    doc2.save(path2)
+    assert _has_2column_table(Document(path2))
+
+    doc3 = Document()
+    doc3.add_table(rows=2, cols=3)
+    path3 = os.path.join(tempfile.mkdtemp(), "test3.docx")
+    doc3.save(path3)
+    assert not _has_2column_table(Document(path3))
+
+    os.unlink(path); os.unlink(path2); os.unlink(path3)
+
+
 def test_find_column_break():
     import tempfile, os
     from docx import Document
@@ -1159,6 +1237,30 @@ def test_transform2cell_integration():
     os.unlink(path); os.unlink(out)
 
 
+def test_transform2cell_table_integration():
+    import tempfile, os
+    from docx import Document
+    path = os.path.join(tempfile.mkdtemp(), "src.docx")
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Original A"
+    table.cell(0, 1).text = "Translated A"
+    table.cell(1, 0).text = "Original B"
+    table.cell(1, 1).text = "Translated B"
+    doc.save(path)
+    out = os.path.join(tempfile.mkdtemp(), "out.docx")
+    transform2cell(path, out)
+    result = Document(out)
+    assert len(result.tables) == 1
+    t = result.tables[0]
+    assert len(t.rows) == 2
+    assert "Original A" in t.rows[0].cells[0].text
+    assert "Translated A" in t.rows[0].cells[1].text
+    assert "Original B" in t.rows[1].cells[0].text
+    assert "Translated B" in t.rows[1].cells[1].text
+    os.unlink(path); os.unlink(out)
+
+
 def test_cli_parser_transform2cell():
     args = parse_args(['input.docx', '--transform2cell'])
     assert args.transform2cell is True
@@ -1189,12 +1291,14 @@ if __name__ == "__main__":
             ("test_restore_missing_placeholder", test_restore_missing_placeholder),
             ("test_parse_translated_response_protects_placeholders", test_parse_translated_response_protects_placeholders),
             ("test_has_2column_layout", test_has_2column_layout),
+            ("test_has_2column_table", test_has_2column_table),
             ("test_find_column_break", test_find_column_break),
             ("test_heuristic_column_split", test_heuristic_column_split),
             ("test_write_2cell_table", test_write_2cell_table),
             ("test_write_2cell_table_no_borders", test_write_2cell_table_no_borders),
             ("test_pair_by_position", test_pair_by_position),
             ("test_transform2cell_integration", test_transform2cell_integration),
+            ("test_transform2cell_table_integration", test_transform2cell_table_integration),
             ("test_cli_parser_transform2cell", test_cli_parser_transform2cell),
         ]
         for name, fn in tests:
