@@ -60,6 +60,16 @@ class TranslationWorker:
 
             db.update_job(job_id, status="running", progress=0)
 
+            if mode == "transform2cell":
+                p = translate_docx.get_provider(config, provider_name) if provider_name else None
+                if model_override and p:
+                    p["model"] = model_override
+                result_path = db.UPLOAD_DIR / f"{job_id}_result.docx"
+                translate_docx.transform2cell(source_path, str(result_path), p)
+                db.update_job(job_id, status="done", progress=100, result_file=str(result_path))
+                db.enforce_file_limit()
+                return
+
             def progress_callback(done, total):
                 db.update_job(job_id, progress=done, total=total)
 

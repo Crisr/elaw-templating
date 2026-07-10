@@ -57,21 +57,22 @@ app = FastAPI(lifespan=lifespan)
 @app.post("/api/translate", status_code=201)
 async def api_translate(
     file: UploadFile = File(...),
-    lang: str = Form(...),
+    lang: str = Form("ro"),
     mode: str = Form("inline"),
+    transform2cell: bool = Form(False),
     provider: Optional[str] = Form(None),
     model: Optional[str] = Form(None),
 ):
-    if lang not in ("ro", "en"):
-        raise HTTPException(400, msg.MESSAGES["err_invalid_lang"])
-    if mode not in ("inline", "side-by-side"):
-        raise HTTPException(400, msg.MESSAGES["err_invalid_mode"])
+    if transform2cell:
+        job_id = db.create_job("", "transform2cell", provider, model)
+    else:
+        if lang not in ("ro", "en"):
+            raise HTTPException(400, msg.MESSAGES["err_invalid_lang"])
+        if mode not in ("inline", "side-by-side"):
+            raise HTTPException(400, msg.MESSAGES["err_invalid_mode"])
+        job_id = db.create_job(lang, mode, provider, model)
 
     head = await file.read(4)
-    if head != DOCX_MAGIC:
-        raise HTTPException(400, msg.MESSAGES["err_not_docx"])
-
-    job_id = db.create_job(lang, mode, provider, model)
     source_path = db.UPLOAD_DIR / f"{job_id}_source.docx"
     with open(source_path, "wb") as f:
         f.write(head)
@@ -107,7 +108,7 @@ def api_download(job_id: str):
     result_path = job["result_file"]
     if not result_path or not os.path.exists(result_path):
         raise HTTPException(410, msg.MESSAGES["err_result_cleaned"])
-    filename = f"translated_{job['language']}.docx"
+    filename = "transformed_cell.docx" if job["mode"] == "transform2cell" else f"translated_{job['language']}.docx"
     return FileResponse(result_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
