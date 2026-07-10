@@ -9,6 +9,8 @@ export interface Messages {
     uploadFailed: string
     fetchStatusFailed: string
     translationFailed: string
+    localeEn: string
+    localeRo: string
   }
   dropZone: {
     dragDrop: string
@@ -47,6 +49,8 @@ export const en: Messages = {
     uploadFailed: 'Upload failed',
     fetchStatusFailed: 'Failed to fetch status',
     translationFailed: 'Translation failed',
+    localeEn: 'EN',
+    localeRo: 'RO',
   },
   dropZone: {
     dragDrop: 'Drag & drop a .docx file here',
@@ -85,6 +89,8 @@ export const ro: Messages = {
     uploadFailed: 'Încărcarea a eșuat',
     fetchStatusFailed: 'Nu s-a putut obține starea',
     translationFailed: 'Traducerea a eșuat',
+    localeEn: 'EN',
+    localeRo: 'RO',
   },
   dropZone: {
     dragDrop: 'Trageți un fișier .docx aici',

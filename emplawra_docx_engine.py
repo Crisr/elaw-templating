@@ -522,7 +522,7 @@ def _llm_full_column_matching(all_dicts, provider):
             result_pairs.append((left, right))
         return result_pairs
     except Exception as e:
-        print(f"Warning: full AI column matching failed ({e})", file=sys.stderr)
+        print(_["warn_ai_full_matching_failed"].format(e=e), file=sys.stderr)
         return None
 
 
@@ -563,7 +563,7 @@ def transform2cell(input_path, output_path, provider=None):
         if raw_pairs is None:
             raw_pairs = _llm_full_column_matching(all_dicts, provider)
         if raw_pairs is None:
-            print("AI matching failed. Falling back to heuristic pairing.", file=sys.stderr)
+            print(_["info_ai_fallback_heuristic"], file=sys.stderr)
             raw_pairs = list(zip(col1, col2))
         pairs = [([d1], [d2]) for d1, d2 in raw_pairs]
 

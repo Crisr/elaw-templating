@@ -35,4 +35,6 @@ MESSAGES = {
     "cli_transform2cell_help": "Convert 2-column Word layout to table-based document",
     "warn_ai_low_confidence": "Warning: AI verification confidence low, using heuristic pairing",
     "warn_ai_verify_failed": "Warning: AI verification failed ({e}), using heuristic pairing",
+    "warn_ai_full_matching_failed": "Warning: full AI column matching failed ({e})",
+    "info_ai_fallback_heuristic": "AI matching failed. Falling back to heuristic pairing.",
 }

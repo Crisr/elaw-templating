@@ -109,9 +109,9 @@ function App() {
             onClick={() => setLocale(locale === 'en' ? 'ro' : 'en')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-200 text-sm font-medium text-brand-500 hover:bg-brand-100 transition-colors"
           >
-            <span className={locale === 'en' ? 'text-brand-500' : 'text-brand-300'}>EN</span>
+            <span className={locale === 'en' ? 'text-brand-500' : 'text-brand-300'}>{msg.localeEn}</span>
             <span className="text-brand-200">/</span>
-            <span className={locale === 'ro' ? 'text-brand-500' : 'text-brand-300'}>RO</span>
+            <span className={locale === 'ro' ? 'text-brand-500' : 'text-brand-300'}>{msg.localeRo}</span>
           </button>
         </div>
 
