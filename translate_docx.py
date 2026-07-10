@@ -13,6 +13,8 @@ from docx import Document, Document as DocxDocument
 from docx.shared import Pt, RGBColor
 from messages import MESSAGES as _
 
+_PARSER = None
+
 
 def load_config(path="config.json"):
     with open(path) as f:
@@ -90,37 +92,6 @@ def _cell_coords(para):
     trs = [r for r in tbl if r.tag.endswith("tr")]
     cell_row = trs.index(tr)
     return cell_row, cell_col
-
-
-def _create_2column_test_docx(path):
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    from docx import Document
-
-    doc = Document()
-    sect_pr = doc.sections[0]._sectPr
-    existing = sect_pr.find(qn('w:cols'))
-    if existing is not None:
-        sect_pr.remove(existing)
-    cols = OxmlElement('w:cols')
-    cols.set(qn('w:num'), '2')
-    cols.set(qn('w:space'), '720')
-    sect_pr.append(cols)
-
-    doc.add_paragraph("First original paragraph.")
-    doc.add_paragraph("Second original paragraph.")
-    doc.add_paragraph("Third original paragraph.")
-
-    p_break = doc.add_paragraph()
-    r_break = p_break.add_run()
-    br = OxmlElement('w:br')
-    br.set(qn('w:type'), 'column')
-    r_break._element.append(br)
-
-    doc.add_paragraph("Primul paragraf original.")
-    doc.add_paragraph("Al doilea paragraf original.")
-    doc.add_paragraph("Al treilea paragraf original.")
-    doc.save(path)
 
 
 def extract_paragraphs(path):
@@ -454,11 +425,12 @@ def _llm_verify_pairs(col1_dicts, col2_dicts, pairs, provider):
         parsed = json.loads(result)
         confidence = parsed.get("confidence", "low")
         if confidence == "low":
-            print("Warning: AI verification confidence low, using heuristic pairing", file=sys.stderr)
+            print(_["warn_ai_low_confidence"], file=sys.stderr)
+            return None
         return pairs
     except Exception as e:
-        print(f"Warning: AI verification failed ({e}), using heuristic pairing", file=sys.stderr)
-        return pairs
+        print(_["warn_ai_verify_failed"].format(e=e), file=sys.stderr)
+        return None
 
 
 def _llm_full_column_matching(all_dicts, provider):
@@ -504,12 +476,12 @@ def _llm_full_column_matching(all_dicts, provider):
 def transform2cell(input_path, output_path, provider=None):
     doc = Document(input_path)
     if not _has_2column_layout(doc):
-        print("Warning: Input document does not appear to have a 2-column layout. Results may be unexpected.", file=sys.stderr)
+        print(_["warn_no_2column_layout"], file=sys.stderr)
 
     split_idx = _find_column_break(doc)
     if split_idx is None:
         split_idx = _heuristic_column_split(doc)
-        print(f"Info: No column break marker found. Using heuristic split at paragraph {split_idx}.", file=sys.stderr)
+        print(_["info_heuristic_column_split"].format(idx=split_idx), file=sys.stderr)
         skip = 0
     else:
         skip = 1
@@ -521,7 +493,7 @@ def transform2cell(input_path, output_path, provider=None):
     pairs = list(zip(col1, col2))
 
     if len(col1) != len(col2):
-        print(f"Warning: Column paragraph counts differ (col1={len(col1)}, col2={len(col2)}).", file=sys.stderr)
+        print(_["warn_transform2cell_mismatch"].format(c1=len(col1), c2=len(col2)), file=sys.stderr)
 
     if provider:
         pairs = _llm_verify_pairs(col1, col2, pairs, provider)
@@ -1085,7 +1057,9 @@ def parse_args(argv=None):
     parser.add_argument("--concurrency", "-j", type=int, default=0,
                         help=_["cli_concurrency_help"])
     parser.add_argument("--transform2cell", action="store_true",
-                        help="Convert 2-column Word layout to table-based 2-column document")
+                        help=_["cli_transform2cell_help"])
+    global _PARSER
+    _PARSER = parser
     return parser.parse_args(argv)
 
 
@@ -1110,8 +1084,7 @@ def main():
         return
 
     if not args.lang:
-        print("--lang is required (unless using --transform2cell)", file=sys.stderr)
-        sys.exit(1)
+        _PARSER.error("--lang is required (unless using --transform2cell)")
 
     provider = get_provider(config, args.provider)
     if args.model:
@@ -1133,6 +1106,37 @@ def main():
     else:
         write_inline(args.input, translated, output)
     print(_["saved"].format(output=output))
+
+
+def _create_2column_test_docx(path):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx import Document
+
+    doc = Document()
+    sect_pr = doc.sections[0]._sectPr
+    existing = sect_pr.find(qn('w:cols'))
+    if existing is not None:
+        sect_pr.remove(existing)
+    cols = OxmlElement('w:cols')
+    cols.set(qn('w:num'), '2')
+    cols.set(qn('w:space'), '720')
+    sect_pr.append(cols)
+
+    doc.add_paragraph("First original paragraph.")
+    doc.add_paragraph("Second original paragraph.")
+    doc.add_paragraph("Third original paragraph.")
+
+    p_break = doc.add_paragraph()
+    r_break = p_break.add_run()
+    br = OxmlElement('w:br')
+    br.set(qn('w:type'), 'column')
+    r_break._element.append(br)
+
+    doc.add_paragraph("Primul paragraf original.")
+    doc.add_paragraph("Al doilea paragraf original.")
+    doc.add_paragraph("Al treilea paragraf original.")
+    doc.save(path)
 
 
 def test_transform2cell_integration():
